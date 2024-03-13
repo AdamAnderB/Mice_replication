@@ -7,24 +7,133 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyverse)
 ```
 
-## R Markdown
+```{r}
+path="../pilot_data"
+list.files(path = path)
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+# List all CSV files in the folder
+csv_files <- list.files(path = path, pattern = "\\.csv$", full.names = TRUE)
+# Read all CSV files into a list of data frames
+list_of_data_frames <- lapply(csv_files, read_csv)
+combined_data_frame <- do.call(rbind, list_of_data_frames)
+data<-combined_data_frame
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+list.files("../pilot_data/data_ding.csv")
+data<-read.csv("../pilot_data/ding/data_ding.csv")
+list.files("../pilot_data/data_exp_168927-v7")
+data<-read.csv("../pilot_data/data_exp_168927-v7/data_exp_168927-v7_task-osi6.csv)
 ```
 
-## Including Plots
+```{r}
+colnames(data) <- gsub(" ", ".", colnames(data))
 
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+training_key<-data%>%
+  select(Participant.Private.ID,Spreadsheet.Name,randomise_trials)%>%
+  filter(randomise_trials==2)%>%
+  unique()%>%
+  select(-randomise_trials)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+test_data<-data%>%
+  select(Participant.Private.ID,Spreadsheet.Name,Reaction.Time,Screen.Name,Zone.Name,Response,Reaction.Time,image,audio_1,audio_2,audio_3,stimulus,randomise_trials,frequency,segment,image,Trial.Number)%>%
+  filter(randomise_trials==4)%>%
+  right_join(training_key)%>%
+  filter(Screen.Name=="Screen 5")%>%
+  mutate(selected_stimulus = case_when(Response=="2nd sound"~audio_1,
+                                      Response=="1st sound"~audio_2,
+                                      Response=="3rd sound"~audio_3),
+         match_stimulus = case_when(selected_stimulus == "phe_fo2.mp3"|selected_stimulus == "phe_fo.mp3"
+                          |selected_stimulus == "o_lc2.mp3"|selected_stimulus == "o_lc.mp3"~"bluesquare.png",
+                            selected_stimulus == "o_ho2.mp3"|selected_stimulus == "o_ho.mp3"
+                          |selected_stimulus == "tshe_r2.mp3"|selected_stimulus == "tshe_r.mp3"~"redcircle.png",
+                            selected_stimulus == "tshe_lo2.mp3"|selected_stimulus == "tshe_lo.mp3"
+                    |selected_stimulus == "phe_hc2.mp3"|selected_stimulus == "phe_hc.mp3"~"yellowtriangle.png"),
+         correct=if_else(match_stimulus == image,1,0))
+         #correct=if_else(selected_stimulus == stimulus,1,0))
+```
+```{r}
+test_data<-data%>%
+  select(Participant.Private.ID,Spreadsheet.Name,Reaction.Time,Screen.Name,Zone.Name,Response,Reaction.Time,image,audio_1,audio_2,audio_3,stimulus,randomise_trials,frequency,segment,image,Trial.Number)%>%
+  filter(randomise_trials==4)%>%
+  right_join(training_key)%>%
+  filter(Screen.Name=="Screen 5")%>%
+  mutate(selected_stimulus = case_when(Response==2~audio_1,
+                                      Response==1~audio_2,
+                                      Response==3~audio_3),
+         match_stimulus = case_when(selected_stimulus == "phe_fo2.mp3"|selected_stimulus == "phe_fo.mp3"
+                          |selected_stimulus == "o_lc2.mp3"|selected_stimulus == "o_lc.mp3"~"bluesquare.png",
+                            selected_stimulus == "o_ho2.mp3"|selected_stimulus == "o_ho.mp3"
+                          |selected_stimulus == "tshe_r2.mp3"|selected_stimulus == "tshe_r.mp3"~"redcircle.png",
+                            selected_stimulus == "tshe_lo2.mp3"|selected_stimulus == "tshe_lo.mp3"
+                    |selected_stimulus == "phe_hc2.mp3"|selected_stimulus == "phe_hc.mp3"~"yellowtriangle.png"),
+         correct=if_else(match_stimulus == image,1,0))
+         #correct=if_else(selected_stimulus == stimulus,1,0))
+```
+
+
+```{r}
+test_data%>%ggplot(aes(x=Reaction.Time,fill=as.factor(Participant.Private.ID)))+
+  geom_density(position = 'identity',alpha=.5)
+
+test_data<-test_data%>%
+  filter(Reaction.Time>250)%>%
+  mutate(norm_rt=log(Reaction.Time),
+         median_rt=median(norm_rt),
+         normal_rt=abs(median_rt-norm_rt))%>%
+  mutate(MAD=sum(normal_rt)/n(),
+         upper_MAD=MAD*2.5+median_rt,
+         lower_MAD=median_rt-MAD*3)%>%
+  filter(norm_rt>lower_MAD & norm_rt<upper_MAD)%>%
+  mutate(trial_rounded = round(as.numeric(Trial.Number)/100) * 1000)
+
+test_data%>%ggplot(aes(x=Reaction.Time,fill=as.factor(Participant.Private.ID)))+
+  geom_density(position = 'identity',alpha=.5)
+
+test_data_agg<-test_data%>%
+  #filter(Trial.Number<100)%>%
+  mutate(frequency=as.factor(frequency),
+         Participant.Private.ID=as.factor(Participant.Private.ID),
+         Spreadsheet.Name=as.factor(Spreadsheet.Name))%>%
+  dplyr::group_by(Participant.Private.ID,Spreadsheet.Name,frequency)%>%
+  dplyr::summarize(score=mean(correct))%>%
+  mutate(group=if_else(Spreadsheet.Name=="image_first",1,0))
+
+test_data_agg%>%
+  ggplot()+
+  geom_jitter(aes(x=Spreadsheet.Name,y=score,color=frequency))+
+  geom_boxplot(aes(x=Spreadsheet.Name,y=score,color=frequency),alpha=.2,width=.2)
+  #geom_line(aes(x=Spreadsheet.Name,y=score,group=interaction(Participant.Private.ID,spread),color=frequency))
+```
+```{r}
+library(lme4)
+library(lmerTest)
+m1<-glmer(correct~as.factor(frequency)*Spreadsheet.Name+(1|Participant.Private.ID),family=binomial,data=test_data)
+summary(m1)
+```
+
+```{r}
+
+test_data_agg2<-test_data%>%
+  mutate(frequency=as.factor(frequency),
+         Participant.Private.ID=as.factor(Participant.Private.ID),
+         Spreadsheet.Name=as.factor(Spreadsheet.Name))%>%
+  dplyr::group_by(Participant.Private.ID,Spreadsheet.Name,frequency,trial_rounded)%>%
+  dplyr::summarize(score=mean(correct))%>%
+  mutate(group=if_else(Spreadsheet.Name=="image_first",1,0))
+
+test_data_agg2%>%
+  ggplot(aes(x=trial_rounded,y=score,color=frequency,groups=trial_rounded))+
+  geom_point()+
+  facet_grid(.~Spreadsheet.Name)
+
+
+
+
+
+
+```
