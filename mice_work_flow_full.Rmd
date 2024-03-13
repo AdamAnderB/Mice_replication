@@ -1,0 +1,279 @@
+---
+---
+title: "mice_work_flow"
+author: "Adam A. Bramlett"
+date: "2024-02-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyverse)
+```
+
+```{r}
+path="../pilot_data"
+list.files(path = path)
+
+list.files("../pilot_data/data_exp_168927-v12/")
+data_1<-read.csv("../pilot_data/data_exp_168927-v16/data_exp_168927-v16_task-ehgj.csv")
+data_2<-read.csv("../pilot_data/data_exp_168927-v16/data_exp_168927-v16_task-epmb.csv")
+data_3<-read.csv("../pilot_data/data_exp_168927-v12/data_exp_168927-v12_task-ehgj.csv")
+data_4<-read.csv("../pilot_data/data_exp_168927-v12/data_exp_168927-v12_task-epmb.csv")
+
+
+data<-bind_rows(data_1,data_2,data_3,data_4)
+
+```
+
+```{r}
+colnames(data) <- gsub(" ", ".", colnames(data))
+test_data<-data%>%
+  select(Participant.Private.ID,Spreadsheet.Name,Reaction.Time,Screen.Name,Zone.Name,Response,Reaction.Time,image,audio_1,audio_2,audio_3,stimulus,randomise_trials,frequency,segment,image,Trial.Number,randomiser.ggy2)%>%
+  filter(randomise_trials==4)%>%
+  filter(Screen.Name=="Screen 5")%>%
+  mutate(selected_stimulus = case_when(Response==2~audio_1,
+                                      Response==1~audio_2,
+                                      Response==3~audio_3),
+         match_stimulus = case_when(selected_stimulus == "phe_fo2.mp3"|selected_stimulus == "phe_fo.mp3"
+                          |selected_stimulus == "o_lc2.mp3"|selected_stimulus == "o_lc.mp3"~"bluesquare.png",
+                            selected_stimulus == "o_ho2.mp3"|selected_stimulus == "o_ho.mp3"
+                          |selected_stimulus == "tshe_r2.mp3"|selected_stimulus == "tshe_r.mp3"~"redcircle.png",
+                            selected_stimulus == "tshe_lo2.mp3"|selected_stimulus == "tshe_lo.mp3"
+                    |selected_stimulus == "phe_hc2.mp3"|selected_stimulus == "phe_hc.mp3"~"yellowtriangle.png"),
+         correct=if_else(match_stimulus == image,1,0),
+         order.pattern=Spreadsheet.Name,
+         Spreadsheet.Name=randomiser.ggy2)%>%
+  filter(Zone.Name=="Zone2")
+  #correct=if_else(selected_stimulus == stimulus,1,0))
+
+#removal MAD
+test_data%>%ggplot(aes(x=Reaction.Time,fill=as.factor(Participant.Private.ID)))+
+  geom_density(position = 'identity',alpha=.5)+
+  facet_wrap(as.factor(Participant.Private.ID)~.)
+
+test_data%>%ggplot(aes(y=Reaction.Time,x=as.factor(Participant.Private.ID),fill=as.factor(Participant.Private.ID)))+
+  geom_boxplot(position = 'identity',alpha=.5)+
+  facet_grid(.~Spreadsheet.Name)
+
+
+test_data<-test_data%>%
+  mutate(norm_rt=log(Reaction.Time),
+         median_rt=median(norm_rt),
+         normal_rt=abs(median_rt-norm_rt))%>%
+  mutate(MAD=sum(normal_rt)/n(),
+         upper_MAD=MAD*2+median_rt,
+         lower_MAD=median_rt-MAD*2)%>%
+  filter(norm_rt>lower_MAD & norm_rt<upper_MAD)%>%
+  mutate(trial_rounded = round(as.numeric(Trial.Number)/10) * 10)%>%
+  filter(Reaction.Time>200)
+  #filter(Participant.Private.ID!="10563568")%>%
+  #filter(Participant.Private.ID!="10571189")
+
+test_data%>%ggplot(aes(x=Reaction.Time,fill=as.factor(Participant.Private.ID)))+
+  geom_density(position = 'identity',alpha=.5)+
+  facet_wrap(as.factor(Participant.Private.ID)~.)
+
+test_data_agg_score<-test_data%>%
+  #filter(frequency==30)%>%
+  dplyr::group_by(Participant.Private.ID,Spreadsheet.Name,frequency)%>%
+  dplyr::summarize(score=mean(correct))%>%
+  mutate(group=if_else(Spreadsheet.Name=="image_first",1,0))%>%
+  ungroup()%>%
+  mutate(median_score=median(score),
+         MAD_score=sum(median_score)/n(),
+         upper_MAD=MAD_score*3+median_score,
+         lower_MAD=median_score-MAD_score*3)
+
+test_data_agg_score%>%
+  ggplot()+
+  geom_jitter(aes(x=Spreadsheet.Name,y=score,color=as.factor(Participant.Private.ID)),size=3)+
+  theme_minimal()+
+  geom_hline(yintercept=.33, linetype="dashed", color = "black")+
+  scale_y_continuous(limits = c(-.2, 1.2))+
+  facet_wrap(.~frequency)
+
+test_data_agg_score%>%
+  ggplot()+
+  geom_jitter(aes(x=Spreadsheet.Name,y=score,color=as.factor(Spreadsheet.Name)),size=3)+
+  theme_minimal()+
+  geom_hline(yintercept=.33, linetype="dashed", color = "black")+
+  scale_y_continuous(limits = c(-.2, 1.2))+
+  facet_wrap(.~frequency)
+```
+
+```{r}
+
+test_data_agg<-test_data%>%
+  #filter(Trial.Number<100)%>%
+  mutate(frequency=as.factor(frequency),
+         Participant.Private.ID=as.factor(Participant.Private.ID),
+         Spreadsheet.Name=as.factor(Spreadsheet.Name))%>%
+  dplyr::group_by(Participant.Private.ID,Spreadsheet.Name,frequency)%>%
+  dplyr::summarize(score=mean(correct))%>%
+  mutate(group=if_else(Spreadsheet.Name=="image_first",1,0))
+  #filter(Participant.Private.ID!="10563568")
+
+test_data_agg%>%
+  ggplot()+
+  geom_jitter(aes(x=Spreadsheet.Name,y=score,color=frequency),size=3)+
+  geom_boxplot(aes(x=Spreadsheet.Name,y=score,color=frequency),alpha=.2,width=.2)+
+  theme_minimal()+
+  geom_hline(yintercept=.33, linetype="dashed", color = "black")+
+  scale_y_continuous(limits = c(0, 1))
+
+
+test_data%>%ggplot(aes(x=Reaction.Time,fill=as.factor(Participant.Private.ID)))+
+  geom_density(position = 'identity',alpha=.5)
+
+test_data%>%ggplot(aes(y=Reaction.Time,x=as.factor(Participant.Private.ID),fill=as.factor(Participant.Private.ID)))+
+  geom_boxplot(position = 'identity',alpha=.5)+
+  facet_grid(.~Spreadsheet.Name)
+
+test_data_agg<-test_data%>%
+  #filter(Trial.Number<100)%>%
+  mutate(frequency=as.factor(frequency),
+         Participant.Private.ID=as.factor(Participant.Private.ID),
+         Spreadsheet.Name=as.factor(Spreadsheet.Name))%>%
+  dplyr::group_by(Participant.Private.ID,Spreadsheet.Name,frequency)%>%
+  dplyr::summarize(score=mean(correct))%>%
+  mutate(group=if_else(Spreadsheet.Name=="image_first",1,0))%>%
+  filter(Participant.Private.ID!="10563568")
+
+test_data_agg%>%
+  #filter(Participant.Private.ID!="10594134")%>%
+  ggplot()+
+  geom_jitter(aes(x=interaction(frequency,Spreadsheet.Name),y=score,color=frequency),size=3)+
+
+  geom_boxplot(aes(x=interaction(frequency,Spreadsheet.Name),y=score,fill=frequency),alpha=.2,width=.1)+
+  theme_minimal()+
+  geom_hline(yintercept=.33, linetype="dashed", color = "black")+
+  scale_y_continuous(limits = c(-0.2, 1.2))
+  
+test_data_agg%>%
+  #filter(Participant.Private.ID!="10594134")%>%
+  ggplot()+
+  geom_dotplot(aes(x=interaction(frequency,Spreadsheet.Name),y=score,fill=frequency),
+               binaxis = "y", stackdir = "center")+
+  geom_violin(aes(x=interaction(frequency,Spreadsheet.Name),
+                  y=score,
+                  fill=frequency,
+                  color=frequency),
+              alpha=.2,width=2)+
+  theme_minimal()+
+  geom_hline(yintercept=.33, linetype="dashed", color = "black")+
+  scale_y_continuous(limits = c(-0.2, 1.2))
+
+test_data_agg1<-test_data%>%
+  #filter(Trial.Number<100)%>%
+  filter(Participant.Private.ID!=c("10563805","10594945","10563568"))%>%
+  mutate(frequency=as.factor(frequency),
+         Participant.Private.ID=as.factor(Participant.Private.ID),
+         Spreadsheet.Name=as.factor(Spreadsheet.Name),)%>%
+  dplyr::group_by(Spreadsheet.Name,frequency)%>%
+  dplyr::summarize(score=mean(correct))%>%
+  mutate(group=if_else(Spreadsheet.Name=="image_first",1,0))
+
+test_data_agg1%>%
+  ggplot()+
+  geom_jitter(aes(x=Spreadsheet.Name,y=score,color=frequency,alpha=.1,size=3))+
+  theme_minimal()+
+  geom_hline(yintercept=.33, linetype="dashed", color = "black")+
+  scale_y_continuous(limits = c(0.2, 1.2))
+  
+  #geom_line(aes(x=Spreadsheet.Name,y=score,group=interaction(Participant.Private.ID,spread),color=frequency))
+```
+```{r}
+library(lme4)
+library(lmerTest)
+library(sjPlot)
+model_data<-test_data%>%
+  mutate(frequency=as.factor(frequency),
+         Spreadsheet.Name=as.factor(Spreadsheet.Name))
+  #filter(Participant.Private.ID!="10594134")
+
+contrasts(model_data$Spreadsheet.Name)<-c(.5,-.5)
+contrasts(model_data$frequency)<-c(-.5,.5)
+contrasts(model_data$frequency)
+contrasts(model_data$Spreadsheet.Name)
+
+m1<-glmer(correct~frequency*Spreadsheet.Name+(image|Participant.Private.ID),
+          family=binomial,data=model_data)
+summary(m1)
+m2<-glmer(correct~frequency*Spreadsheet.Name+(image||Participant.Private.ID),
+          family=binomial,data=model_data)
+summary(m2)
+
+m3<-glmer(correct~Spreadsheet.Name*frequency+(1|Participant.Private.ID),
+          family=binomial,data=model_data)
+summary(m3)
+
+
+m4<-glm(correct~Spreadsheet.Name*frequency,
+          family=binomial,data=model_data)
+summary(m4)
+
+
+anova(m2,m3)
+
+anova(m3,m4)
+
+plot_model(m1, type = "coef")
+
+# For interactions
+plot_model(m1, type = "int")
+
+# For effects
+plot_model(m2, type = "eff")
+```
+
+```{r}
+
+test_data_agg2<-test_data%>%
+  mutate(frequency=as.factor(frequency),
+         Participant.Private.ID=as.factor(Participant.Private.ID),
+         Spreadsheet.Name=as.factor(Spreadsheet.Name))%>%
+  dplyr::group_by(Participant.Private.ID,Spreadsheet.Name,frequency,trial_rounded)%>%
+  dplyr::summarize(score=mean(correct))%>%
+  mutate(group=if_else(Spreadsheet.Name=="image_first",1,0))
+
+test_data_agg2%>%
+  ggplot(aes(x=trial_rounded,y=score,color=frequency,groups=trial_rounded))+
+  geom_point()+
+  facet_grid(.~Spreadsheet.Name)
+
+
+
+
+
+
+```title: "mice_work_flow_modified"
+author: "Adam A. Bramlett"
+date: "2024-03-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
