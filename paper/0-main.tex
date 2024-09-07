@@ -1,0 +1,179 @@
+% This template is based on the apa7 latex class.
+% I recommend reading about the class here:
+% https://ctan.math.illinois.edu/macros/latex/contrib/apa7/apa7.pdf
+% The class includes various useful commands which all format documents in the correct apa7 style.
+
+% Documentlass can be stu (student), doc (document), jou (journal), or man (manuscript)
+% Use stu for Course papers
+\documentclass[man, floatsintext, a4paper, 12pt, biblatex, donotrepeattitle]{apa7}
+\usepackage[english]{babel}
+
+%%%%% PACKAGES
+% subfiles
+\usepackage{csquotes}
+\usepackage{subfiles}
+%this is off because I figured out a process for making it a word file but it requires that the numbers are off to do it
+%\usepackage[right]{lineno}%numbers on the right
+%\linenumbers
+\usepackage{lipsum}
+\usepackage{xcolor}
+%hyperlink colors fix
+\usepackage{listings}
+  
+
+\definecolor{mygreen}{rgb}{0,0.6,0}
+\definecolor{mygray}{rgb}{0.5,0.5,0.5}
+\definecolor{mymauve}{rgb}{0.58,0,0.82}
+\definecolor{orange}{RGB}{253,181,21}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{codegray},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    morecomment=[l]{\#},
+    alsoletter={\#},
+    commentstyle=\color{cmu_red},
+    keywordstyle=\color{rose_red},
+    numberstyle=\ttfamily\footnotesize,
+    stringstyle=\color{orange},
+    numbers=left,
+    showstringspaces=false,
+    frame=none,
+    morestring=[b]",
+    morestring=[b]',
+    literate={<}{{\textcolor{bluethread}{<}}}1
+             {=}{{\textcolor{bluethread}{=}}}1
+             {:}{{\textcolor{bluethread}{:}}}1
+             {\%in\%}{{\textcolor{bluethread}{\%in\%}}}4
+             {\%}{{\textcolor{bluethread}{\%}}}1
+             {<-}{{\textcolor{bluethread}{<-}}}2
+             {!}{{\textcolor{bluethread}{!}}}1
+             {\&}{{\textcolor{bluethread}{\&}}}1
+             {|}{{\textcolor{bluethread}{|}}}1
+             {>}{{\textcolor{bluethread}{>}}}1,
+    morekeywords=[2]{TRUE, FALSE},
+    keywordstyle=[2]\color{pink},
+    morekeywords=[3]{time}
+}
+
+\definecolor{custombg}{RGB}{220,220,220} % Adjust the background color
+\definecolor{pink}{RGB}{255,105,180}
+\definecolor{customgreen}{RGB}{0,128,0}
+\definecolor{customorange}{RGB}{255,165,0}
+\definecolor{bluethread}{RGB}{8,146,208}
+\definecolor{codegray}{RGB}{246,246,246}
+\definecolor{cmu_red}{RGB}{196,18,48}
+\definecolor{rose_red}{RGB}{239,58,71}
+\definecolor{cmu_blue}{RGB}{4,54,115}
+\definecolor{green}{RGB}{0,150,71}
+\definecolor{cmu_grey}{RGB}{109,110,113}
+%\definecolor{gorilla_red}{RGB}{231,18,52}
+\definecolor{gorilla_red}{RGB}{254,243,245}
+
+\definecolor{yellow}{RGB}{255,255,0}
+
+
+\usepackage{ulem}
+\usepackage{booktabs}
+\usepackage{amssymb}
+\hypersetup{
+    colorlinks,
+    linkcolor={blue!50!black},
+    citecolor={blue!50!black},
+    urlcolor={blue!80!black}
+}
+
+\newcommand{\inlineR}[1]{{\footnotesize\texttt{\colorbox{codegray}{#1}}}}
+
+\newcommand{\gorilla}[1]{{\small\texttt{\colorbox{gorilla_red}{\textcolor{black}{\fontfamily{ptm}\selectfont \textit{#1}}}}}}
+
+
+\usepackage{datatool}
+\usepackage{ifthen}
+
+% Load the CSV file
+%\DTLloaddb{chunknums}{scripts/chunk-num_lister.csv}
+
+% Define a command to look up content
+%\newcommand{\liner}[1]{%
+%  \DTLforeach{chunk_nums}{\col1=content_cleaned, \col2=Line}{%
+%    \ifthenelse{\equal{#1}{\col1}}{\col2}{}%
+%  }%
+%}
+
+%\newcommand{\getValue}[1]{%
+%  \DTLforeach{chunk-num}{\ColumnOne=content_cleaned,\ColumnTwo=Line}{%
+%    \ifthenelse{\equal{\ColumnOne}{#1}}{%
+%      \edef\storedValue{\ColumnTwo}%
+%    }{%
+%      \typeout{No match for #1 in \ColumnOne}%
+%    }%
+%  }%
+%}
+
+% Define the command to get the value
+
+%\usepackage{titlesec}
+
+%\titleformat{\section}
+%  {\normalfont\Roman\Big\bfseries\color{black}}
+%  {\thesection}
+%  {1em}
+%  {\thesection\hspace{0.6em}}
+%\titleformat{\subsection}
+%  {\normalfont\Roman\Big\it\color{black}}
+%  {\thesubsection}
+%  {1em}
+%  {}
+%\titleformat{\subsubsection}
+%  {\normalfont\Roman\Big\it\color{black}}
+%  {\thesubsubsection}
+%  {1em}
+%  {}
+
+
+% Title
+\title{Predictive Minds: Unlearning and Prediction Errors in Southern Min, Japanese, and Mandarin}
+\shorttitle{Predicting Minds}
+
+% Author
+\author{University: XXX}
+\affiliation{Authors: XXX, XXX}
+
+
+% Authornote, if desired uncomment:
+% \authornote{}
+
+% Abstract, if desired uncomment:
+%\abstract{\subfile{0-abstract}}
+
+% biblatex reference file
+\addbibresource{paper/references.bib}
+
+
+\begin{document}
+\maketitle
+
+%\tableofcontents
+\newpage
+
+% Add all section subfiles here. More can be created if needed
+\subfile{paper/1-abstract}
+\subfile{paper/2-introduction}
+\subfile{paper/3-act_one}
+\subfile{paper/4-act_two}
+\subfile{paper/5-act_three}
+\subfile{paper/6-Discussion}
+\subfile{paper/7-Conclusion}
+%\subfile{outline}
+
+% sections are done with \section, \subsection and \subsubsection.
+% for more information, see https://ctan.math.illinois.edu/macros/latex/contrib/apa7/apa7.pdf
+
+\printbibliography
+% include all sources in references.bib
+% cite sources in text with \autocite, or:
+% \parencite for "(Author, 2023)"
+% \textcite for "Author (2023)"
+\end{document}
