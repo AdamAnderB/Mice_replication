@@ -1,7 +1,7 @@
 ---
-title: "gorilla_sheets"
+title: "Gorilla_sheets_japanese"
 author: "Adam A. Bramlett"
-date: "2024-02-27"
+date: "2024-08-25"
 output: html_document
 ---
 
@@ -11,9 +11,12 @@ library(conflicted)
 library(combinat)
 library(gtools)
 ```
+
 ```{r}
 #get stimuli
-path="../Nixon/cue-outcome order stimuli"
+
+list.files("../extension_languages/korean/selected_sounds/renamed_for_experiement")
+path="../extension_languages/korean/selected_sounds/renamed_for_experiement"
 sounds<-list.files(path = path,pattern=".mp3")
 images=list.files(path = path,pattern="png")
 
@@ -22,19 +25,35 @@ images=list.files(path = path,pattern="png")
 # it assumes that everything is .mp3
 rep(1:6,each=2)
 images<-sort(images)
-high_frequency<-c("phe_fo","o_ho","tshe_lo")
-low_frequency<-c("o_lc","tshe_r","phe_hc")
-image_1<-c("phe_fo","o_lc")
-image_2<-c("o_ho","tshe_r")
-image_3<-c("tshe_lo","phe_hc")
+high_frequency<-c("p_al","p_ul","p_at")
+low_frequency<-c("b_ul","b_at","b_al")
+image_1<-c("p_al","b_ul")
+image_2<-c("p_ul","b_at")
+image_3<-c("p_at","b_al")
 ```
 
 ```{r}
 #set amounts
-#testing_num=30
+testing_num=1
 full_num_train=40
 high=full_num_train*.75
 low=full_num_train*.25
+
+
+sounds_df_expanded<-data.frame(sounds)%>%
+  arrange(sounds)%>%
+  mutate(names=rep(c("stim_1","stim_2"),6),
+         count=rep(1:6,each=2))%>%
+  pivot_wider(names_from = names,values_from = sounds)%>%
+  mutate(base = sub("\\.mp3", "", stim_1))%>%
+  mutate(image=case_when(base%in%image_1~images[1],
+                         base%in%image_2~images[2],
+                         base%in%image_3~images[3]),
+         frequency=case_when(base%in%high_frequency~high,
+                             base%in%low_frequency~low),
+         test_frequency=testing_num,
+         tone=gsub("^.+?_", "", base),
+         segment=sub("_.*", "", base))
 
 #make spreadsheets
 sounds_df<-data.frame(sounds)%>%
@@ -57,12 +76,12 @@ training_df<-sounds_df%>%
   slice(rep(1:n(), times = frequency))%>%
   mutate(sound_selection=rep(1:2,length.out=n()))%>%
   mutate(sound_stimuli=if_else(sound_selection==1,stim_1,stim_2))
+
 #test data frame
-high_frequency[1]
 test_df<-sounds_df%>%
-  #slice(rep(1:n(), times = test_frequency))%>%
-  #mutate(sound_selection=rep(1:2,length.out=n()))%>%
-  #mutate(sound_stimuli=if_else(sound_selection==1,stim_1,stim_2))%>%
+  slice(rep(1:n(), times = test_frequency))%>%
+  mutate(sound_selection=rep(1:2,length.out=n()))%>%
+  mutate(sound_stimuli=if_else(sound_selection==1,stim_1,stim_2))%>%
   mutate(target_base=base,
          distractor_base_1=case_when(base==high_frequency[1]~high_frequency[2],
                                      base==high_frequency[2]~high_frequency[3],
@@ -77,21 +96,24 @@ test_df<-sounds_df%>%
                                      base==low_frequency[2]~low_frequency[1],
                                      base==low_frequency[3]~low_frequency[2]))
 
+```
+
+```{r}
 #all possible permeatations of the sound stimuli
 # Function to generate all permutations of a single row
 generate_permutations <- function(row) {
   # Extract the values as a vector
   elements <- unlist(row)
   # Generate all permutations
-  perms <- permutations(n = length(elements), r = length(elements), v = elements, set = FALSE)
+  perms <- gtools::permutations(n = length(elements), r = length(elements), v = elements, set = FALSE)
   # Convert to data frame
   as.data.frame(perms)
 }
 
-all_perms_df <- bind_rows(lapply(1:nrow(test_df_expander), function(i) {
-  generate_permutations(test_df_expander[i, ])
+sounds_df_expanded<-rbind(high_frequency,low_frequency)
+all_perms_df <- bind_rows(lapply(1:nrow(sounds_df_expanded), function(i) {
+  generate_permutations(sounds_df_expanded[i, ])
 }))
-
 
 #now add in the optional 2 with all possible permeatations
 modifiers <- expand.grid(c("", "2"), c("", "2"), c("", "2"))
@@ -123,7 +145,9 @@ all_modified_df <- all_modified_df %>%
                              correct_answer_numbering==2~audio_2,
                              correct_answer_numbering==3~audio_3))
 ```
+
 ```{r}
+
 #test data
 test_df_longer<-test_df%>%
   pivot_longer(cols = c(stim_1,stim_2),names_to = "stimulus_number",values_to="stimulus")
@@ -135,7 +159,7 @@ test_data_ordered<-all_modified_df%>%
 
 test_data_ordered <- test_data_ordered%>%
   group_by(stimulus) %>%
-  sample_frac(size = 0.5) %>%
+  #sample_frac(size = 0.5) %>%
   ungroup()%>%
   mutate(row_counter = (row_number() - 1) %% 2 + 1)
 
@@ -147,8 +171,18 @@ test_data_ordered<-test_data_ordered%>%
          image_3=case_when(image==images[3]~image,
                            image!=images[3]~"white.png"))
 
+#randomly order to select only 12 of each
+test_data_ordered<-test_data_ordered%>%
+  slice(sample(n()))%>%
+  group_by(stimulus,correct_answer_numbering)%>%
+  mutate(stimulus_count = row_number()) %>%  # Label each occurrence sequentially
+  ungroup()%>%
+  filter(stimulus_count<=2) 
+  
+  
+
 #check randomness of answer distributions
-agg_data_1<-test_data_ordered_1%>%
+agg_data_base<-test_data_ordered%>%
   mutate(match_1=if_else(stimulus==audio_1,1,0),
          match_2=if_else(stimulus==audio_2,1,0),
          match_3=if_else(stimulus==audio_3,1,0))%>%
@@ -156,18 +190,39 @@ group_by(stimulus)%>%
   summarize(sum_match_1=sum(match_1),
             sum_match_2=sum(match_2),
             sum_match_3=sum(match_3))
+
+agg_data_1<-agg_data_base%>%
+  ungroup()%>%
+  summarize(sum1=sum(sum_match_1),
+      sum2=sum(sum_match_2),
+      sum3=sum(sum_match_3))
+
+agg_data_2<-test_data_ordered%>%
+  mutate(match_1=if_else(stimulus==audio_1,1,0),
+         match_2=if_else(stimulus==audio_2,1,0),
+         match_3=if_else(stimulus==audio_3,1,0))%>%
+group_by(stimulus)%>%
+  summarize(sum_match_1=sum(match_1),
+            sum_match_2=sum(match_2),
+            sum_match_3=sum(match_3))%>%
+  mutate(base_words=stimulus,
+         base_words = gsub("2\\.mp3$", "", base_words),
+         base_words = gsub(".mp3$", "", base_words),
+         summer=sum_match_1+sum_match_2+sum_match_3)%>%
+  group_by(base_words)%>%
+  summarize(total=sum(summer))
+
 #spring
 test_data_ordered_1 <- test_data_ordered%>%
   filter(row_counter==1)
 test_data_ordered_2 <- test_data_ordered%>%
   filter(row_counter==2)
 
-
 ##############################
 #function for attention check items
 process_test <- function(data) {
   data %>%
-    group_by(stimulus) %>%
+    group_by(base) %>%
     mutate(counter = row_number(),
            counter = if_else(counter == 1, 1, 0),
            display_key=display,
@@ -189,6 +244,9 @@ agg_data_1<-test_data_ordered_1%>%
 agg_data_2<-test_data_ordered_2%>%
   group_by(stimulus)%>%
   count()
+
+agg_data_1
+agg_data_2
 ```
 combining the dataframe into a gorilla spreadsheet
 ```{r}
@@ -302,11 +360,6 @@ agg_1<-training_data_image_14%>%group_by(sound_stimuli)%>%count()
 agg_2<-training_data_image_23%>%group_by(sound_stimuli)%>%count()
 agg_3<-agg_1$n+agg_2$n
 agg_3
-
-#View(training_data_sound_14)
-#View(training_data_sound_23)
-#View(training_data_image_14)
-#View(training_data_image_23)
 ```
 ```{r}
 first_row <- data.frame(randomise_trials = 1, display = "directions_phase_1")  
@@ -318,6 +371,7 @@ test_data_ordered<-test_data_ordered%>%
 mutate(display = "phase_2",
          randomise_trials = 4)
 
+
 # Step 2: Add the new row to the top of the data frame
 image_1 <- bind_rows(first_row, training_data_image_14)
 image_2 <- bind_rows(continue_row,training_data_image_23)
@@ -328,7 +382,7 @@ test_2 <- bind_rows(continue_row,test_data_ordered_2)
 ```
 
 ```{r}
-folder_path <- "../Nixon/replication_materials"
+folder_path <- "../extension_languages/korean/csv_folder"
 # Check if the folder exists
 if (!dir.exists(folder_path)) {
   dir.create(folder_path)
@@ -342,3 +396,4 @@ write.csv(sound_2,file.path(folder_path,"sound_first_2.csv"))
 write.csv(test_1,file.path(folder_path,"test_1.csv"))
 write.csv(test_2,file.path(folder_path,"test_2.csv"))
 ```
+

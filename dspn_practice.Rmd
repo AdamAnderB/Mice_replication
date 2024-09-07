@@ -1,0 +1,173 @@
+---
+title: "dspn_practice"
+author: "Adam A. Bramlett"
+date: "2024-05-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+
+
+list.files()
+```
+```{r}
+test_data<-read.csv("test_data.csv")
+combined_train_data<-read.csv("combined_train_data.csv")
+combined_et_data<-read.csv("combined_et_data.csv")
+```
+
+```{r}
+
+attention<-combined_train_data%>%
+  select(Participant.Private.ID,Spreadsheet.Name,Response,image,image_1:image_3,display,sound_stimuli,audio_1,audio_2,audio_3,Screen.Name,Zone.Name,Zone.Type,tester_1:tester_3)%>%
+  filter(str_detect(display, "test"))%>%
+  filter(Screen.Name=="Screen 6")%>%
+  filter(Zone.Type == "response_keyboard_single"|Zone.Type == "response_button_image")%>%
+  mutate(participant_response=case_when(Response==1&str_detect(display, "test_sound")~tester_1,
+                                   Response==2&str_detect(display, "test_sound")~tester_2,
+                                   Response==3&str_detect(display, "test_sound")~tester_3,
+                                   str_detect(Response, "png")~Response))%>%
+  mutate(response_correct = case_when(str_detect(display, "test_sound")&sound_stimuli==participant_response~0,
+                                      str_detect(display, "test_sound")&sound_stimuli!=participant_response~1,
+                                      str_detect(display, "test_image")&image==participant_response~0,
+                                      str_detect(display, "test_image")&image!=participant_response~1))
+  
+attention_agg<-attention%>%
+  group_by(Participant.Private.ID)%>%
+  summarize(score=sum(response_correct))%>%
+  mutate(score_normalized=sqrt(score),
+         mean=mean(score_normalized),
+         sd=sd(score_normalized),
+         max=mean+sd*2,
+         min=mean-sd*2)
+
+attention_agg%>%ggplot(aes(x=Participant.Private.ID,y=score,color=as.factor(Participant.Private.ID)))+
+  geom_point()+
+  geom_hline(aes(yintercept = mean))+
+  geom_hline(aes(yintercept = max))+
+  geom_hline(aes(yintercept = min))
+
+keep_attention_agg<-attention_agg%>%filter(score<mean(score)+(sd(score)*2))
+```
+
+```{r}
+
+```
+
+
+
+```{r}
+test_data_clean<-test_data%>%
+  filter(Participant.Private.ID%in%keep_attention_agg$Participant.Private.ID)%>%
+  select(Participant.Private.ID,Spreadsheet.Name,Reaction.Time,Screen.Name,Zone.Name,Response,Reaction.Time,image,audio_1,audio_2,audio_3,stimulus,randomise_trials,frequency,segment,image,Trial.Number,randomiser.ggy2)%>%
+  filter(randomise_trials==4)%>%
+  filter(Screen.Name=="Screen 5")%>%
+  mutate(selected_stimulus = case_when(Response==2~audio_1,
+                                      Response==1~audio_2,
+                                      Response==3~audio_3),
+         match_stimulus = case_when(selected_stimulus == "phe_fo2.mp3"|selected_stimulus == "phe_fo.mp3"
+                          |selected_stimulus == "o_lc2.mp3"|selected_stimulus == "o_lc.mp3"~"bluesquare.png",
+                            selected_stimulus == "o_ho2.mp3"|selected_stimulus == "o_ho.mp3"
+                          |selected_stimulus == "tshe_r2.mp3"|selected_stimulus == "tshe_r.mp3"~"redcircle.png",
+                            selected_stimulus == "tshe_lo2.mp3"|selected_stimulus == "tshe_lo.mp3"
+                    |selected_stimulus == "phe_hc2.mp3"|selected_stimulus == "phe_hc.mp3"~"yellowtriangle.png"),
+         correct=if_else(match_stimulus == image,1,0),
+         order.pattern=Spreadsheet.Name,
+         Spreadsheet.Name=randomiser.ggy2)%>%
+  filter(Zone.Name=="Zone2")
+  #correct=if_else(selected_stimulus == stimulus,1,0))
+
+#removal MAD
+test_data_clean%>%ggplot(aes(y=Reaction.Time,x=as.factor(Participant.Private.ID),fill=as.factor(Participant.Private.ID)))+
+  geom_boxplot(position = 'identity',alpha=.5)+
+  facet_grid(.~Spreadsheet.Name)
+
+
+test_data_clean<-test_data_clean%>%
+  mutate(norm_rt=log(Reaction.Time),
+         median_rt=median(norm_rt),
+         normal_rt=abs(median_rt-norm_rt))%>%
+  filter(Reaction.Time>200)%>%
+  mutate(MAD=sum(normal_rt)/n(),
+         upper_MAD=MAD*2.5+median_rt,
+         lower_MAD=median_rt-MAD*2.5)%>%
+  filter(norm_rt>lower_MAD & norm_rt<upper_MAD)%>%
+  mutate(trial_rounded = round(as.numeric(Trial.Number)/10) * 10)
+  
+
+test_data_clean%>%ggplot(aes(y=Reaction.Time,x=as.factor(Participant.Private.ID),fill=as.factor(Participant.Private.ID)))+
+  geom_boxplot(position = 'identity',alpha=.5)+
+  facet_grid(.~Spreadsheet.Name)
+
+
+test_data_agg_score<-test_data_clean%>%
+  dplyr::group_by(Participant.Private.ID,Spreadsheet.Name,frequency)%>%
+  dplyr::summarize(score=mean(correct))%>%
+  mutate(group=if_else(Spreadsheet.Name=="image_first",1,0))
+
+test_data_agg_score$Spreadsheet.Name <- factor(test_data_agg_score$Spreadsheet.Name)
+
+# Now sort the data frame by Spreadsheet.Name and Participant.Private.ID
+test_data_agg_score <- test_data_agg_score %>%
+  arrange(Spreadsheet.Name, as.factor(Participant.Private.ID))
+
+#plot accuracy
+test_data_agg_score%>%
+  ggplot()+
+  geom_jitter(aes(x=Spreadsheet.Name,y=score,color=as.factor(Spreadsheet.Name)),size=3)+
+  theme_minimal()+
+  geom_hline(yintercept=.33, linetype="dashed", color = "black")+
+  scale_y_continuous(limits = c(-.2, 1.2))+
+  facet_wrap(.~frequency)
+```
+
+```{r}
+library(lme4)
+library(lmerTest)
+library(sjPlot)
+model_data<-test_data%>%
+  mutate(frequency=as.factor(frequency),
+         Spreadsheet.Name=as.factor(Spreadsheet.Name))
+  #filter(Participant.Private.ID!="10594134")
+
+contrasts(model_data$Spreadsheet.Name)<-c(.5,-.5)
+contrasts(model_data$frequency)<-c(-.5,.5)
+contrasts(model_data$frequency)
+contrasts(model_data$Spreadsheet.Name)
+
+m1<-glmer(correct~frequency*Spreadsheet.Name+(image|Participant.Private.ID),
+          family=binomial,data=model_data)
+summary(m1)
+m2<-glmer(correct~frequency*Spreadsheet.Name+(image||Participant.Private.ID),
+          family=binomial,data=model_data)
+summary(m2)
+
+m3<-glmer(correct~Spreadsheet.Name*frequency+(1|Participant.Private.ID),
+          family=binomial,data=model_data)
+sum<-summary(m3)
+sum
+sum$coefficients
+
+m4<-glm(correct~Spreadsheet.Name*frequency,
+          family=binomial,data=model_data)
+summary(m4)
+
+
+anova(m2,m3)
+
+anova(m3,m4)
+
+plot_model(m1, type = "coef")
+
+# For interactions
+plot_model(m1, type = "int")
+
+# For effects
+plot_model(m2, type = "eff")
+
+

@@ -1,5 +1,4 @@
 ---
----
 title: "mice_work_flow"
 author: "Adam A. Bramlett"
 date: "2024-02-27"
@@ -14,6 +13,7 @@ library(ggplot2)
 ```
 
 ```{r}
+#test data
 path="../pilot_data"
 list.files(path = path)
 
@@ -23,11 +23,11 @@ data_2<-read.csv("../pilot_data/data_exp_173290-v4/data_exp_173290-v4_task-77al.
 
 data<-bind_rows(data_1,data_2)
 
+colnames(data) <- gsub(" ", ".", colnames(data))
+
 write.csv(data,"test_data.csv")
 
-```
-```{r}
-
+#training data
 all_train_data<-list.files("../pilot_data/data_exp_173290-v4/",full.names = TRUE, pattern = "ci6a|rkna|3ud8|4nzj")
 
 combined_train_data <- do.call(rbind, lapply(all_train_data, function(file) {
@@ -38,6 +38,37 @@ combined_train_data <- do.call(rbind, lapply(all_train_data, function(file) {
 }))
 colnames(combined_train_data) <- gsub(" ", ".", colnames(combined_train_data))
 
+
+write.csv(combined_train_data,"combined_train_data.csv")
+
+
+#### et data
+library(readxl)
+all_et_files<-list.files("../pilot_data/data_exp_173290-v4/uploads",full.names = TRUE, pattern = "ci6a|rkna|3ud8|4nzj")
+
+list_of_data_frames <- lapply(all_et_files, function(file) {
+  et_data <- read_excel(file)
+  et_data$et_file <- basename(file)
+  return(et_data)
+})
+
+combined_et_data <- do.call(rbind, list_of_data_frames)
+combined_et_data<-combined_et_data%>%
+  mutate(Participant.Private.ID=participant_id,
+         Spreadsheet.Row=spreadsheet_row)%>%
+  select(Participant.Private.ID,Spreadsheet.Row,screen_index,time_stamp,type,
+         face_conf,x_pred_normalised,y_pred_normalised,et_file)%>%
+  filter(type=="prediction")%>%
+  group_by(Participant.Private.ID,et_file)%>%
+  mutate(time=time_stamp-min(time_stamp))
+
+write.csv(combined_et_data,"combined_et_data.csv")
+
+
+```
+
+
+```{r}
 attention<-combined_train_data%>%
   select(Participant.Private.ID,Spreadsheet.Name,Response,image,image_1:image_3,display,sound_stimuli,audio_1,audio_2,audio_3,Screen.Name,Zone.Name,Zone.Type,tester_1:tester_3)%>%
   filter(str_detect(display, "test"))%>%
@@ -73,7 +104,7 @@ keep_attention_agg<-attention_agg%>%filter(score<4)
 
 
 ```{r}
-colnames(data) <- gsub(" ", ".", colnames(data))
+
 test_data<-data%>%
   filter(Participant.Private.ID%in%keep_attention_agg$Participant.Private.ID)%>%
   select(Participant.Private.ID,Spreadsheet.Name,Reaction.Time,Screen.Name,Zone.Name,Response,Reaction.Time,image,audio_1,audio_2,audio_3,stimulus,randomise_trials,frequency,segment,image,Trial.Number,randomiser.ggy2)%>%
@@ -292,7 +323,6 @@ plot_model(m1, type = "int")
 # For effects
 plot_model(m2, type = "eff")
 
-
 ```
 ```{r}
 conf_int <- confint(m3, method = "Wald", parm = "beta_")
@@ -409,7 +439,6 @@ combined_et_data<-combined_et_data%>%
 ```
 
 ```{r}
-
 combined_train_data
 et<-combined_train_data%>%
   left_join(combined_et_data)%>%
@@ -450,8 +479,8 @@ comp_images<-df%>%
 
 et<-et%>%left_join(comp_images)
 ```
-```{r}
 
+```{r}
 et_cats <- et %>%
   mutate(
     # Adjust points relative to the new center at (0.5, 0.5)
@@ -680,8 +709,6 @@ et_agg_comp2$Participant.Private.ID<-as.factor(et_agg_comp2$Participant.Private.
 test_data_agg_new<-test_data_agg%>%
   mutate(type = if_else(Spreadsheet.Name=="sound_first","sound","image"),
          frequency = if_else(frequency==1,10,30))
-
-View(test_data_agg_new)
 
 test_data_agg_new$frequency<-as.factor(test_data_agg_new$frequency)
 suprisal_acc<-et_agg_comp2%>%

@@ -1,7 +1,7 @@
 ---
-title: "gorilla_sheets"
+title: "Gorilla_sheets_japanese"
 author: "Adam A. Bramlett"
-date: "2024-02-27"
+date: "2024-08-25"
 output: html_document
 ---
 
@@ -13,6 +13,8 @@ library(gtools)
 ```
 ```{r}
 #get stimuli
+
+list.files("../extension_languages")
 path="../Nixon/cue-outcome order stimuli"
 sounds<-list.files(path = path,pattern=".mp3")
 images=list.files(path = path,pattern="png")
