@@ -1,4 +1,12 @@
 \section{3. Results}
 
 
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=1\linewidth]{visualizations/accuracy_overall4.png}
+  \caption{accuracy_overall4}
+  \label{fig:plot_raw_task}
+\end{figure}
+
+
 
