@@ -1,11 +1,10 @@
 \section{3. Results}
 
-
 \begin{figure}[H]
   \centering
-  \includegraphics[width=1\linewidth]{visualizations/visualizations/visualizations.001.jpeg}
+  \includegraphics[width=1\linewidth]{visualizations/nixon_insp_mod.png}
   \caption{language model}
-  \label{fig:visualizations2}
+  \label{fig:nixon_insp_mod.png}
 \end{figure}
 
 \begin{figure}[H]
@@ -13,13 +12,6 @@
   \includegraphics[width=1\linewidth]{visualizations/mod_out_train.png}
   \caption{language model}
   \label{fig:mod_out_train}
-\end{figure}
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=1\linewidth]{visualizations/nixon_insp_mod.png}
-  \caption{language model}
-  \label{fig:nixon_insp_mod.png}
 \end{figure}
 
 \begin{figure}[H]
