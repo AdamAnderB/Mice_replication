@@ -3,10 +3,46 @@
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=1\linewidth]{visualizations/accuracy_overall4.png}
-  \caption{accuracy_overall4}
-  \label{fig:plot_raw_task}
+  \includegraphics[width=1\linewidth]{visualizations/visualizations/visualizations.001.jpeg}
+  \caption{language model}
+  \label{fig:visualizations2}
 \end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=1\linewidth]{visualizations/mod_out_train.png}
+  \caption{language model}
+  \label{fig:mod_out_train}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=1\linewidth]{visualizations/nixon_insp_mod.png}
+  \caption{language model}
+  \label{fig:nixon_insp_mod.png}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=1\linewidth]{visualizations/pe_viz.png}
+  \caption{language model}
+  \label{fig:nixon_insp_mod.png}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=1\linewidth]{visualizations/pe_violin.png}
+  \caption{language model}
+  \label{fig:pe_violin}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=1\linewidth]{visualizations/gam_out.png}
+  \caption{gam}
+  \label{fig:gam}
+\end{figure}
+
 
 
 
