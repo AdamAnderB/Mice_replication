@@ -1,0 +1,56 @@
+---
+title: "sound_files_length"
+author: "Adam A. Bramlett"
+date: "2024-09-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tuneR)
+library(dplyr)
+
+directory_mandarin <- "../../extension_languages/mandarin/renamed_for_experiment/"
+directory_japanese<-"../../extension_languages/japanese/selected_sounds/renamed_for_experiement/"
+directory_nixon <- "../../extension_languages/minnan/mp3_versions/"
+
+# Create a function to process a directory
+process_directory <- function(dir) {
+  # List all mp3 files in the directory
+  files <- list.files(dir, pattern = "\\.mp3$", full.names = TRUE)
+  audio_lengths_list <- list()
+  for (file in files) {
+    audio <- readMP3(file)
+    length_ms <- length(audio) / audio@samp.rate * 1000
+    
+    audio_lengths_list[[length(audio_lengths_list) + 1]] <- data.frame(
+      file_name = basename(file),
+      length_ms = length_ms,
+      directory = dir,
+      stringsAsFactors = FALSE
+    )
+  }
+
+  # Combine the results into a data frame
+  audio_lengths <- bind_rows(audio_lengths_list)
+  
+  return(audio_lengths)
+}
+
+# Process each directory individually
+audio_lengths_mandarin <- process_directory(directory_mandarin)
+audio_lengths_japanese <- process_directory(directory_japanese)
+audio_lengths_nixon <- process_directory(directory_nixon)
+
+# Combine the results from all directories
+all_audio_lengths <- bind_rows(audio_lengths_mandarin, audio_lengths_japanese,audio_lengths_nixon)%>%
+  select(-directory)
+
+all_audio_lengths%>%
+  write.csv("../../data_syb/audio_lengths.csv", row.names = FALSE)
+```
+
+

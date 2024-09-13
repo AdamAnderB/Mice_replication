@@ -1,0 +1,996 @@
+---
+---
+title: "mice_work_flow"
+author: "Adam A. Bramlett"
+date: "2024-02-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+```
+
+```{r}
+
+#test data
+path="../pilot_data"
+list.files(path = path)
+
+list.files("../pilot_data/data_exp_173290-v4/")
+data_1<-read.csv("../pilot_data/data_exp_173290-v4/data_exp_173290-v4_task-31k6.csv")
+data_2<-read.csv("../pilot_data/data_exp_173290-v4/data_exp_173290-v4_task-77al.csv")
+
+data<-bind_rows(data_1,data_2)
+
+colnames(data) <- gsub(" ", ".", colnames(data))
+
+write.csv(data,"test_data.csv")
+
+#training data
+all_train_data<-list.files("../pilot_data/data_exp_173290-v4/",full.names = TRUE, pattern = "ci6a|rkna|3ud8|4nzj")
+
+combined_train_data <- do.call(rbind, lapply(all_train_data, function(file) {
+  train_data <- read_csv(file)
+  # Optionally, add a source file column
+  train_data$source_file <- basename(file)
+  return(train_data)
+}))
+colnames(combined_train_data) <- gsub(" ", ".", colnames(combined_train_data))
+
+
+write.csv(combined_train_data,"combined_train_data.csv")
+
+
+#### et data
+library(readxl)
+all_et_files<-list.files("../pilot_data/data_exp_173290-v4/uploads",full.names = TRUE, pattern = "ci6a|rkna|3ud8|4nzj")
+
+list_of_data_frames <- lapply(all_et_files, function(file) {
+  et_data <- read_excel(file)
+  et_data$et_file <- basename(file)
+  return(et_data)
+})
+
+combined_et_data <- do.call(rbind, list_of_data_frames)
+combined_et_data<-combined_et_data%>%
+  mutate(Participant.Private.ID=participant_id,
+         Spreadsheet.Row=spreadsheet_row)%>%
+  select(Participant.Private.ID,Spreadsheet.Row,screen_index,time_stamp,type,
+         face_conf,x_pred_normalised,y_pred_normalised,et_file)%>%
+  filter(type=="prediction")%>%
+  group_by(Participant.Private.ID,et_file)%>%
+  mutate(time=time_stamp-min(time_stamp))
+
+write.csv(combined_et_data,"combined_et_data.csv")
+
+
+```
+
+
+```{r}
+attention<-combined_train_data%>%
+  select(Participant.Private.ID,Spreadsheet.Name,Response,image,image_1:image_3,display,sound_stimuli,audio_1,audio_2,audio_3,Screen.Name,Zone.Name,Zone.Type,tester_1:tester_3)%>%
+  filter(str_detect(display, "test"))%>%
+  filter(Screen.Name=="Screen 6")%>%
+  filter(Zone.Type == "response_keyboard_single"|Zone.Type == "response_button_image")%>%
+  mutate(participant_response=case_when(Response==1&str_detect(display, "test_sound")~tester_1,
+                                   Response==2&str_detect(display, "test_sound")~tester_2,
+                                   Response==3&str_detect(display, "test_sound")~tester_3,
+                                   str_detect(Response, "png")~Response))%>%
+  mutate(response_correct = case_when(str_detect(display, "test_sound")&sound_stimuli==participant_response~0,
+                                      str_detect(display, "test_sound")&sound_stimuli!=participant_response~1,
+                                      str_detect(display, "test_image")&image==participant_response~0,
+                                      str_detect(display, "test_image")&image!=participant_response~1))
+  
+attention_agg<-attention%>%
+  group_by(Participant.Private.ID)%>%
+  summarize(score=sum(response_correct))%>%
+  mutate(score_normalized=sqrt(score),
+         mean=mean(score_normalized),
+         sd=sd(score_normalized),
+         max=mean+sd*2,
+         min=mean-sd*2)
+
+attention_agg%>%ggplot(aes(x=Participant.Private.ID,y=score,color=as.factor(Participant.Private.ID)))+
+  geom_point()+
+  geom_hline(aes(yintercept = mean))+
+  geom_hline(aes(yintercept = max))+
+  geom_hline(aes(yintercept = min))
+
+keep_attention_agg<-attention_agg%>%filter(score<4)
+```
+
+
+
+```{r}
+
+test_data<-data%>%
+  filter(Participant.Private.ID%in%keep_attention_agg$Participant.Private.ID)%>%
+  select(Participant.Private.ID,Spreadsheet.Name,Reaction.Time,Screen.Name,Zone.Name,Response,Reaction.Time,image,audio_1,audio_2,audio_3,stimulus,randomise_trials,frequency,segment,image,Trial.Number,randomiser.ggy2)%>%
+  filter(randomise_trials==4)%>%
+  filter(Screen.Name=="Screen 5")%>%
+  mutate(selected_stimulus = case_when(Response==2~audio_1,
+                                      Response==1~audio_2,
+                                      Response==3~audio_3),
+         match_stimulus = case_when(selected_stimulus == "phe_fo2.mp3"|selected_stimulus == "phe_fo.mp3"
+                          |selected_stimulus == "o_lc2.mp3"|selected_stimulus == "o_lc.mp3"~"bluesquare.png",
+                            selected_stimulus == "o_ho2.mp3"|selected_stimulus == "o_ho.mp3"
+                          |selected_stimulus == "tshe_r2.mp3"|selected_stimulus == "tshe_r.mp3"~"redcircle.png",
+                            selected_stimulus == "tshe_lo2.mp3"|selected_stimulus == "tshe_lo.mp3"
+                    |selected_stimulus == "phe_hc2.mp3"|selected_stimulus == "phe_hc.mp3"~"yellowtriangle.png"),
+         correct=if_else(match_stimulus == image,1,0),
+         order.pattern=Spreadsheet.Name,
+         Spreadsheet.Name=randomiser.ggy2)%>%
+  filter(Zone.Name=="Zone2")
+  #correct=if_else(selected_stimulus == stimulus,1,0))
+
+#removal MAD
+test_data%>%ggplot(aes(x=Reaction.Time,fill=as.factor(Participant.Private.ID)))+
+  geom_density(position = 'identity',alpha=.5)+
+  facet_wrap(as.factor(Participant.Private.ID)~.)
+
+test_data%>%ggplot(aes(y=Reaction.Time,x=as.factor(Participant.Private.ID),fill=as.factor(Participant.Private.ID)))+
+  geom_boxplot(position = 'identity',alpha=.5)+
+  facet_grid(.~Spreadsheet.Name)
+
+
+test_data<-test_data%>%
+  mutate(norm_rt=log(Reaction.Time),
+         median_rt=median(norm_rt),
+         normal_rt=abs(median_rt-norm_rt))%>%
+  mutate(MAD=sum(normal_rt)/n(),
+         upper_MAD=MAD*2.5+median_rt,
+         lower_MAD=median_rt-MAD*2.5)%>%
+  filter(norm_rt>lower_MAD & norm_rt<upper_MAD)%>%
+  mutate(trial_rounded = round(as.numeric(Trial.Number)/10) * 10)%>%
+  filter(Reaction.Time>200)
+  #filter(Participant.Private.ID!="10563568")%>%
+  #filter(Participant.Private.ID!="10571189")
+
+test_data%>%ggplot(aes(x=Reaction.Time,fill=as.factor(Participant.Private.ID)))+
+  geom_density(position = 'identity',alpha=.5)+
+  facet_wrap(as.factor(Participant.Private.ID)~.)
+
+
+test_data_agg_score<-test_data%>%
+  #filter(frequency==30)%>%
+  dplyr::group_by(Participant.Private.ID,Spreadsheet.Name,frequency)%>%
+  dplyr::summarize(score=mean(correct))%>%
+  mutate(group=if_else(Spreadsheet.Name=="image_first",1,0))%>%
+  ungroup()%>%
+  mutate(median_score=median(score),
+         MAD_score=sum(median_score)/n(),
+         upper_MAD=MAD_score*2.5+median_score,
+         lower_MAD=median_score-MAD_score*2.5)
+
+test_data_agg_score$Spreadsheet.Name <- factor(test_data_agg_score$Spreadsheet.Name)
+
+# Now sort the data frame by Spreadsheet.Name and Participant.Private.ID
+test_data_agg_score <- test_data_agg_score %>%
+  arrange(Spreadsheet.Name, as.factor(Participant.Private.ID))
+
+# Plot
+ggplot(test_data_agg_score, aes(x = Spreadsheet.Name, y = score)) +
+  geom_jitter(aes(color = as.factor(Participant.Private.ID)), size = 3, position = position_jitter(seed = 1)) +
+  geom_text(aes(label = as.factor(Participant.Private.ID)), position = position_jitter(seed = 1)) +
+  theme_minimal() +
+  geom_hline(yintercept = .33, linetype = "dashed", color = "black") +
+  scale_y_continuous(limits = c(-.2, 1.2)) +
+  geom_line(aes(group = as.factor(Participant.Private.ID))) +
+  facet_wrap(. ~ frequency)
+
+
+test_data_agg_score%>%
+  ggplot()+
+  geom_jitter(aes(x=Spreadsheet.Name,y=score,color=as.factor(Spreadsheet.Name)),size=3)+
+  theme_minimal()+
+  geom_hline(yintercept=.33, linetype="dashed", color = "black")+
+  scale_y_continuous(limits = c(-.2, 1.2))+
+  facet_wrap(.~frequency)
+```
+
+```{r}
+test_data_agg<-test_data%>%
+  #filter(Trial.Number<100)%>%
+  mutate(frequency=as.factor(frequency),
+         Participant.Private.ID=as.factor(Participant.Private.ID),
+         Spreadsheet.Name=as.factor(Spreadsheet.Name))%>%
+  dplyr::group_by(Participant.Private.ID,Spreadsheet.Name,frequency)%>%
+  dplyr::summarize(score=mean(correct))%>%
+  mutate(group=if_else(Spreadsheet.Name=="image_first",1,0))
+  #filter(Participant.Private.ID!="10563568")
+
+test_data_agg%>%
+  ggplot()+
+  geom_jitter(aes(x=Spreadsheet.Name,y=score,color=frequency),size=3)+
+  geom_boxplot(aes(x=Spreadsheet.Name,y=score,color=frequency),alpha=.2,width=.2)+
+  theme_minimal()+
+  geom_hline(yintercept=.33, linetype="dashed", color = "black")+
+  scale_y_continuous(limits = c(0, 1))
+
+
+test_data%>%ggplot(aes(x=Reaction.Time,fill=as.factor(Participant.Private.ID)))+
+  geom_density(position = 'identity',alpha=.5)
+
+test_data%>%ggplot(aes(y=Reaction.Time,x=as.factor(Participant.Private.ID),fill=as.factor(Participant.Private.ID)))+
+  geom_boxplot(position = 'identity',alpha=.5)+
+  facet_grid(.~Spreadsheet.Name)
+
+test_data_agg<-test_data%>%
+  #filter(Trial.Number<100)%>%
+  mutate(frequency=as.factor(frequency),
+         Participant.Private.ID=as.factor(Participant.Private.ID),
+         Spreadsheet.Name=as.factor(Spreadsheet.Name))%>%
+  dplyr::group_by(Participant.Private.ID,Spreadsheet.Name,frequency)%>%
+  dplyr::summarize(score=mean(correct))%>%
+  mutate(group=if_else(Spreadsheet.Name=="image_first",1,0))%>%
+  filter(Participant.Private.ID!="10563568")
+
+
+test_data_agg%>%
+  #filter(Participant.Private.ID!="10594134")%>%
+  ggplot()+
+  geom_jitter(aes(x=interaction(frequency,Spreadsheet.Name),y=score,color=frequency),size=3)+
+
+  geom_boxplot(aes(x=interaction(frequency,Spreadsheet.Name),y=score,fill=frequency),alpha=.2,width=.1)+
+  theme_minimal()+
+  geom_hline(yintercept=.33, linetype="dashed", color = "black")+
+  scale_y_continuous(limits = c(-0.2, 1.2))
+  
+
+
+test_data_agg%>%
+  #filter(Participant.Private.ID!="10594134")%>%
+  ggplot()+
+  geom_dotplot(aes(x=interaction(Spreadsheet.Name,frequency),y=score,fill=frequency),
+               binaxis = "y", stackdir = "center")+
+  geom_violin(aes(x=interaction(Spreadsheet.Name,frequency),
+                  y=score,
+                  fill=frequency,
+                  color=frequency),
+              alpha=.2,width=2)+
+  geom_boxplot(aes(x=interaction(Spreadsheet.Name,frequency),
+                  y=score,
+                  color=frequency),
+              alpha=.2,width=.05,fill="white")+
+  theme_minimal()+
+  geom_hline(yintercept=.33, linetype="dashed", color = "black")+
+  scale_y_continuous(limits = c(-0.2, 1.2))+
+  scale_fill_manual(values = c("#C41230", "#043673"))+
+  scale_color_manual(values = c("#C41230", "#043673"))
+
+test_data_agg1<-test_data%>%
+  #filter(Trial.Number<100)%>%
+  mutate(frequency=as.factor(frequency),
+         Participant.Private.ID=as.factor(Participant.Private.ID),
+         Spreadsheet.Name=as.factor(Spreadsheet.Name),)%>%
+  dplyr::group_by(Spreadsheet.Name,frequency)%>%
+  dplyr::summarize(score=mean(correct))%>%
+  mutate(group=if_else(Spreadsheet.Name=="image_first",1,0))
+
+test_data_agg1%>%
+  ggplot()+
+  geom_jitter(aes(x=Spreadsheet.Name,y=score,color=frequency,alpha=.1,size=3))+
+  theme_minimal()+
+  geom_hline(yintercept=.33, linetype="dashed", color = "black")+
+  scale_y_continuous(limits = c(0.2, 1.2))+
+  scale_color_manual(values = c("#C41230", "#043673"))
+  
+  #geom_line(aes(x=Spreadsheet.Name,y=score,group=interaction(Participant.Private.ID,spread),color=frequency))
+```
+```{r}
+library(lme4)
+library(lmerTest)
+library(sjPlot)
+model_data<-test_data%>%
+  mutate(frequency=as.factor(frequency),
+         Spreadsheet.Name=as.factor(Spreadsheet.Name))
+  #filter(Participant.Private.ID!="10594134")
+
+contrasts(model_data$Spreadsheet.Name)<-c(.5,-.5)
+contrasts(model_data$frequency)<-c(-.5,.5)
+contrasts(model_data$frequency)
+contrasts(model_data$Spreadsheet.Name)
+
+m1<-glmer(correct~frequency*Spreadsheet.Name+(image|Participant.Private.ID),
+          family=binomial,data=model_data)
+summary(m1)
+m2<-glmer(correct~frequency*Spreadsheet.Name+(image||Participant.Private.ID),
+          family=binomial,data=model_data)
+summary(m2)
+
+m3<-glmer(correct~Spreadsheet.Name*frequency+(1|Participant.Private.ID),
+          family=binomial,data=model_data)
+sum<-summary(m3)
+sum
+sum$coefficients
+
+m4<-glm(correct~Spreadsheet.Name*frequency,
+          family=binomial,data=model_data)
+summary(m4)
+
+
+anova(m2,m3)
+
+anova(m3,m4)
+
+plot_model(m1, type = "coef")
+
+# For interactions
+plot_model(m1, type = "int")
+
+# For effects
+plot_model(m2, type = "eff")
+
+```
+```{r}
+conf_int <- confint(m3, method = "Wald", parm = "beta_")
+
+# Ensure correct structure
+conf_int_df <- as.data.frame(conf_int)
+conf_int_df$Term <- rownames(conf_int_df)
+
+# Merge with fixed effects
+fixed_effects_df <- as.data.frame(fixef(m3), row.names = NULL)
+names(fixed_effects_df) <- c("Estimate")
+fixed_effects_df$Term <- rownames(fixed_effects_df)
+
+coef_df <- merge(fixed_effects_df, conf_int_df, by = "Term")
+coef_df <- as.data.frame(cbind(Estimate = fixed_effects, conf_int))%>%
+  na.omit()
+
+coef_df$Term <- rownames(coef_df)
+
+# Make sure the column names for the confidence intervals are correct
+# The confint function usually returns a matrix with specific naming, but let's define them clearly
+names(coef_df)[2:3] <- c("Lower", "Upper")
+
+# Plotting with ggplot2
+ggplot(coef_df, aes(x = Term, y = Estimate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = Lower, ymax = Upper), width = 0.2) +
+  coord_flip() + # Makes it easier to read terms
+  labs(title = "Model Coefficients (Fixed Effects) with Confidence Intervals",
+       x = "Term", y = "Coefficient Estimate") +
+  theme_minimal()
+
+```
+```{r}
+
+newData <- expand.grid(
+  Spreadsheet.Name = unique(model_data$Spreadsheet.Name),
+  frequency = unique(model_data$frequency)
+  # Note: Participant.Private.ID is not included here
+)
+
+newData$predictedProbability <- predict(m3, newdata = newData, type = "response", re.form = NA)
+
+library(forcats)
+
+# Reversing the factor level order
+newData$Spreadsheet.Name <- fct_rev(newData$Spreadsheet.Name)
+
+
+ggplot(newData, aes(x = Spreadsheet.Name, y = predictedProbability, group = frequency, color = frequency)) +
+  geom_line(linewidth=3) + # Use geom_point() if you prefer dots to lines
+  geom_point(size=5) +
+  labs(x = "", y = "Predicted Probability", color = "Spreadsheet Name") +
+  theme_minimal()+
+  scale_color_manual(values = c("#C41230", "#043673"))
+
+```
+```{r}
+
+test_data_agg2<-test_data%>%
+  mutate(frequency=as.factor(frequency),
+         Participant.Private.ID=as.factor(Participant.Private.ID),
+         Spreadsheet.Name=as.factor(Spreadsheet.Name))%>%
+  dplyr::group_by(Participant.Private.ID,Spreadsheet.Name,frequency,trial_rounded)%>%
+  dplyr::summarize(score=mean(correct))%>%
+  mutate(group=if_else(Spreadsheet.Name=="image_first",1,0))
+
+test_data_agg2%>%
+  ggplot(aes(x=trial_rounded,y=score,color=frequency,groups=trial_rounded))+
+  geom_point()+
+  facet_grid(.~Spreadsheet.Name)
+```
+
+```{r}
+
+all_train_data<-list.files("../pilot_data/data_exp_173290-v4/",full.names = TRUE, pattern = "ci6a|rkna|3ud8|4nzj")
+
+combined_train_data <- do.call(rbind, lapply(all_train_data, function(file) {
+  train_data <- read_csv(file)
+  # Optionally, add a source file column
+  train_data$source_file <- basename(file)
+  return(train_data)
+}))
+colnames(combined_train_data) <- gsub(" ", ".", colnames(combined_train_data))
+
+combined_train_data<-combined_train_data%>%
+  filter(str_detect(Response, "xlsx"))%>%
+  filter(!str_detect(Response, "https"))%>%
+  mutate(et_file=Response)%>%
+  select(!Response)%>%
+  select(Participant.Private.ID,Trial.Number,Spreadsheet.Row,Spreadsheet.Name,sound_stimuli,image,frequency,tone,segment,image_1,image_2,image_3,et_file)
+```
+
+```{r}
+library(readxl)
+all_et_files<-list.files("../pilot_data/data_exp_173290-v4/uploads",full.names = TRUE, pattern = "ci6a|rkna|3ud8|4nzj")
+
+list_of_data_frames <- lapply(all_et_files, function(file) {
+  et_data <- read_excel(file)
+  et_data$et_file <- basename(file)
+  return(et_data)
+})
+
+# Combine all data frames into one
+combined_et_data <- do.call(rbind, list_of_data_frames)
+combined_et_data<-combined_et_data%>%
+  mutate(Participant.Private.ID=participant_id,
+         Spreadsheet.Row=spreadsheet_row)%>%
+  select(Participant.Private.ID,Spreadsheet.Row,screen_index,time_stamp,type,
+         face_conf,x_pred_normalised,y_pred_normalised,et_file)%>%
+  filter(type=="prediction")%>%
+  group_by(Participant.Private.ID,et_file)%>%
+  mutate(time=time_stamp-min(time_stamp))
+```
+
+```{r}
+combined_train_data
+et<-combined_train_data%>%
+  left_join(combined_et_data)%>%
+  mutate(time_rounded = round(time / 200) * 200,
+         word=paste(segment,tone,sep="_"))
+
+#make compeitor and target images
+df<-combined_train_data%>%
+  select(image,segment,tone,frequency)%>%
+  unique()%>%
+  mutate(word=paste(segment,tone,sep="_"),
+         target_image=image)
+
+competitor<-df%>%
+  select(image,segment,frequency)%>%
+  pivot_wider(names_from = frequency,names_prefix = "freq_",values_from = image)
+
+competitor1<-competitor%>%
+  mutate(target_image=freq_10,
+         distractor_image=freq_30)
+
+competitor2<-competitor%>%
+  mutate(target_image=freq_30,
+         distractor_image=freq_10)
+
+key_competitors<-rbind(competitor1,competitor2)%>%select(!c(freq_10,freq_30))
+
+competitors<-key_competitors$target_image%>%unique()
+competitors
+comp_images<-df%>%
+  left_join(key_competitors)%>%
+  mutate(nonce_image = case_when(
+    !target_image %in% competitors[1] & !distractor_image %in% competitors[1] ~ competitors[1],
+    !target_image %in% competitors[2] & !distractor_image %in% competitors[2] ~ competitors[2],
+    TRUE ~ competitors[3]
+  ))%>%
+  select(word:nonce_image)
+
+et<-et%>%left_join(comp_images)
+```
+
+```{r}
+et_cats <- et %>%
+  mutate(
+    # Adjust points relative to the new center at (0.5, 0.5)
+    adjusted_x = x_pred_normalised - 0.5,
+    adjusted_y = y_pred_normalised - 0.5,
+    # Calculate angle in radians from the adjusted points
+    angle = atan2(adjusted_y, adjusted_x),
+    # Adjust angle to rotate the frame of reference so that the positive y-axis is the starting point
+    angle = angle - pi/2,
+    # Normalize the angle to be within the [0, 2*pi) range
+    angle = ifelse(angle < 0, angle + 2*pi, angle),
+    # Convert angle to degrees for easier interpretation
+    angle_deg = angle * 180 / pi,
+    # Categorize based on the adjusted angle
+    sector = case_when(
+      angle_deg < 120 ~ "bluesquare.png",
+      angle_deg >= 120 & angle_deg < 240 ~ "yellowtriangle.png",
+      TRUE ~ "redcircle.png" ),
+    # Calculate Euclidean distance from the origin (0.5, 0.5)
+    distance_from_origin = sqrt(adjusted_x^2 + adjusted_y^2),
+    target_looks = if_else(sector == target_image, 1, 0),
+    distractor_looks = if_else(sector == distractor_image, 1, 0),
+    nonce_looks = if_else(sector == nonce_image, 1, 0),
+    distance_center=if_else(distance_from_origin<.1,1,0)
+  )%>%
+  separate(Spreadsheet.Name, into = c("type", "order", "number"), sep = "_")
+
+et_agg<-et_cats%>%
+  filter(distance_center==0)%>%
+  group_by(type,time_rounded,frequency,distance_center)%>%
+  summarize(looks_target=mean(target_looks),
+            looks_competitor=mean(distractor_looks),
+            looks_nonce=mean(nonce_looks))%>%
+  mutate(time_rounded=if_else(type=="image",time_rounded+1700,time_rounded))%>%#1200
+  filter(time_rounded>1500)%>%
+  filter(time_rounded<7000)%>%
+  #mutate(time_rounded-200)%>%
+  pivot_longer(col=c(looks_target:looks_nonce),names_to="looks",values_to = "values")
+
+
+
+et_agg %>%
+  ggplot(aes(y = values, x = time_rounded, color = interaction(looks),fill = as.factor(looks))) +
+  geom_point()+
+  #geom_line(aes(group = interaction(looks, frequency))) +
+  geom_smooth()+
+  facet_grid(frequency~interaction(type))+
+  scale_y_continuous(limits = c(.1, .6))+
+  theme_minimal()
+
+```
+```{r}
+et_agg<-et_cats%>%
+  filter(distance_center==0)%>%
+  group_by(type,time_rounded,frequency,distance_center)%>%
+  summarize(looks_target=mean(target_looks),
+            looks_competitor=mean(distractor_looks),
+            looks_nonce=mean(nonce_looks))%>%
+  mutate(time_rounded=if_else(type=="image",time_rounded-900,time_rounded))%>%#1200
+  filter(time_rounded>1600)%>%
+  filter(time_rounded<4500)%>%
+  #mutate(time_rounded-200)%>%
+  pivot_longer(col=c(looks_target:looks_competitor),names_to="looks",values_to = "values")
+
+
+
+et_agg %>%
+  ggplot(aes(y = values, x = time_rounded, color = interaction(looks),fill = as.factor(looks))) +
+  geom_point()+
+  #geom_line(aes(group = interaction(looks, frequency))) +
+  geom_smooth()+
+  facet_grid(frequency~interaction(type))+
+  scale_y_continuous(limits = c(-.3, 1))+
+  theme_minimal()
+
+
+
+
+
+
+```
+```{r}
+
+
+
+```
+```{r}
+et_agg<-et_cats%>%
+  filter(distance_center==0)%>%
+  group_by(type,time_rounded,frequency,distance_center,number)%>%
+  summarize(looks_target=mean(target_looks),
+            looks_competitor=mean(distractor_looks),
+            looks_nonce=mean(nonce_looks))%>%
+  mutate(time_rounded=if_else(type=="image",time_rounded,time_rounded))%>%#1200
+  #mutate(time_rounded+200)%>%
+  filter(time_rounded>1500)%>%
+  filter(time_rounded<5000)%>%
+  pivot_longer(col=c(looks_target:looks_nonce),names_to="looks",values_to = "values")
+
+
+
+et_agg %>%
+  ggplot(aes(y = values, x = time_rounded, color = interaction(looks),fill = as.factor(looks))) +
+  geom_point()+
+  #geom_line(aes(group = interaction(looks, frequency))) +
+  geom_smooth()+
+  facet_grid(frequency~interaction(number,type))+
+  scale_y_continuous(limits = c(-.3, 1))+
+  theme_minimal()+
+  scale_x_continuous(breaks = seq(from = min(et_agg$time_rounded, na.rm = TRUE), 
+                                  to = max(et_agg$time_rounded, na.rm = TRUE), 
+                                  by = 1000)) 
+```
+```{r}
+
+et_agg_comp<-et_cats%>%
+  filter(distance_center==0)%>%
+  group_by(type,time_rounded,frequency,distance_center)%>%
+  summarize(looks_target=mean(target_looks),
+            looks_competitor=mean(distractor_looks),
+            looks_nonce=mean(nonce_looks))%>%
+  mutate(time_rounded=if_else(type=="image",time_rounded+2000,time_rounded))%>%#1200
+  #mutate(time_rounded+200)%>%
+  filter(time_rounded>1500)%>%
+  filter(time_rounded<5000)%>%
+  pivot_longer(col=c(looks_target:looks_nonce),names_to="looks",values_to = "values")
+
+
+et_agg_comp%>%
+  ggplot(aes(y = values, x = time_rounded, color = interaction(looks),fill = as.factor(looks))) +
+  geom_point()+
+  #geom_line(aes(group = interaction(looks, frequency))) +
+  geom_smooth()+
+  facet_grid(frequency~interaction(type))+
+  scale_y_continuous(limits = c(-.3, 1))+
+  theme_minimal()+
+  scale_x_continuous(breaks = seq(from = min(et_agg_comp$time_rounded, na.rm = TRUE), 
+                                  to = max(et_agg_comp$time_rounded, na.rm = TRUE), 
+                                  by = 1000)) 
+
+```
+
+```{r}
+et2<-combined_train_data%>%
+  left_join(combined_et_data)%>%
+  mutate(time=if_else(Spreadsheet.Name=="image_first_1",time+2000,time))%>%
+  filter(time>2500)%>%
+  filter(time<5000)%>%
+  mutate(word=paste(segment,tone,sep="_"))
+et2<-et2%>%left_join(comp_images)
+
+et_cats2 <- et2 %>%
+  mutate(
+    # Adjust points relative to the new center at (0.5, 0.5)
+    adjusted_x = x_pred_normalised - 0.5,
+    adjusted_y = y_pred_normalised - 0.5,
+    # Calculate angle in radians from the adjusted points
+    angle = atan2(adjusted_y, adjusted_x),
+    # Adjust angle to rotate the frame of reference so that the positive y-axis is the starting point
+    angle = angle - pi/2,
+    # Normalize the angle to be within the [0, 2*pi) range
+    angle = ifelse(angle < 0, angle + 2*pi, angle),
+    # Convert angle to degrees for easier interpretation
+    angle_deg = angle * 180 / pi,
+    # Categorize based on the adjusted angle
+    sector = case_when(
+      angle_deg < 120 ~ "bluesquare.png",
+      angle_deg >= 120 & angle_deg < 240 ~ "yellowtriangle.png",
+      TRUE ~ "redcircle.png" ),
+    # Calculate Euclidean distance from the origin (0.5, 0.5)
+    distance_from_origin = sqrt(adjusted_x^2 + adjusted_y^2),
+    target_looks = if_else(sector == target_image, 1, 0),
+    distractor_looks = if_else(sector == distractor_image, 1, 0),
+    nonce_looks = if_else(sector == nonce_image, 1, 0),
+    distance_center=if_else(distance_from_origin<.1,1,0)
+  )%>%
+  separate(Spreadsheet.Name, into = c("type", "order", "number"), sep = "_")
+
+
+
+et_agg_comp2<-et_cats2%>%
+  filter(distance_center==0)%>%
+  group_by(type,frequency,Participant.Private.ID)%>%
+  summarize(looks_target=mean(target_looks),
+            looks_competitor=mean(distractor_looks),
+            looks_nonce=mean(nonce_looks))%>%
+  pivot_longer(col=c(looks_target:looks_nonce),names_to="looks",values_to = "values")
+
+
+et_agg_comp2%>%
+  ggplot(aes(y = values, x = as.factor(looks), color = interaction(looks),fill = as.factor(looks))) +
+  geom_point()+
+  geom_violin()+
+  #geom_line(aes(group = interaction(looks, frequency))) +
+  facet_grid(frequency~interaction(type))+
+  scale_y_continuous(limits = c(-.3, 1))+
+  theme_minimal()
+
+et_agg_comp2<-et_cats2%>%
+  filter(distance_center==0)%>%
+  group_by(type,frequency,Participant.Private.ID)%>%
+  summarize(looks_target=mean(target_looks),
+            looks_competitor=mean(distractor_looks),
+            looks_nonce=mean(nonce_looks))%>%
+  mutate(suprisal=looks_competitor-looks_target)
+
+et_agg_comp2%>%
+  ggplot(aes(y = suprisal, x = interaction(type,frequency), color =factor(frequency))) +
+  geom_violin(width=.2)+
+  geom_boxplot(width=.1)+
+  geom_jitter()+
+  scale_y_continuous(limits = c(-.3, 1))+
+  theme_minimal()+
+  scale_y_continuous(breaks = seq(from = -.5, na.rm = TRUE, 
+                                  to = .5, 
+                                  by = .2))+
+  scale_color_manual(values = c("#C41230", "#043673"))
+
+```
+```{r}
+test_data_agg$frequency<-as.factor(test_data_agg$frequency)
+et_agg_comp2$frequency<-as.factor(et_agg_comp2$frequency)
+test_data_agg$Participant.Private.ID<-as.factor(test_data_agg$Participant.Private.ID)
+et_agg_comp2$Participant.Private.ID<-as.factor(et_agg_comp2$Participant.Private.ID)
+
+test_data_agg_new<-test_data_agg%>%
+  mutate(type = if_else(Spreadsheet.Name=="sound_first","sound","image"),
+         frequency = if_else(frequency==1,10,30))
+
+test_data_agg_new$frequency<-as.factor(test_data_agg_new$frequency)
+suprisal_acc<-et_agg_comp2%>%
+  left_join(test_data_agg_new)
+
+suprisal_acc<-suprisal_acc%>%
+  mutate(score_scaled = scale(score)[,1],
+         suprisal_scaled = scale(suprisal)[,1])%>%
+  na.omit()
+
+suprisal_acc%>%ggplot(aes(x=suprisal,y=score,color=type))+
+  geom_point()+
+  facet_grid(.~frequency)+
+  theme_minimal()
+```
+
+```{r}
+suprisal_acc$type<-as.factor(suprisal_acc$type)
+
+suprisal_acc_mod<-suprisal_acc%>%
+  filter(frequency==10,type=="sound")
+contrasts(suprisal_acc$frequency)<-c(-.5,.5)
+contrasts(suprisal_acc$type)<-c(-.5,.5)
+acc_mod<-lm(score~type*frequency,data=suprisal_acc)
+
+summary(acc_mod)
+View(model_data)
+
+m3<-glmer(correct~Spreadsheet.Name*frequency+(1|Participant.Private.ID),
+          family=binomial,data=model_data)
+
+```
+
+
+
+
+```{r}
+et_mod<-et_cats%>%
+  filter(distance_center==0)%>%
+  group_by(type,time_rounded,frequency,distance_center,number)%>%
+  summarize(looks_target=mean(target_looks),
+            looks_competitor=mean(distractor_looks),
+            looks_nonce=mean(nonce_looks))%>%
+  mutate(time_rounded=if_else(type=="image",time_rounded,time_rounded))%>%#1200
+  #mutate(time_rounded+200)%>%
+  #filter(time_rounded>1500)%>%
+  filter(time_rounded<5000)%>%
+  pivot_longer(col=c(looks_target:looks_competitor),names_to="looks",values_to = "values")
+
+et_mod$type<-as.factor(et_mod$type)
+et_mod$frequency<-as.factor(et_mod$frequency)
+contrasts(et_mod$frequency)<-c(.5,-.5)
+et_mod$number<-as.factor(et_mod$number)
+
+library(lmerTest)
+mod_data<-lm(values~time_rounded*looks*frequency*number*type,data=et_mod,family=gaussian)
+
+
+summary(mod_data)
+
+library(sjPlot)
+
+
+# Assuming mod_data is your fitted model
+plot_model(mod_data, type = "diag")
+plot_model(mod_data, type = "pred", terms = "time_rounded")
+
+plot_model(mod_data, type = "eff", terms = c("time_rounded", "looks"))
+
+
+et_mod$looks <- as.factor(et_mod$looks)
+et_mod$frequency <- as.factor(et_mod$frequency)
+et_mod$number <- as.factor(et_mod$number)
+
+
+
+pred_data <- expand.grid(
+  time_rounded = seq(from = min(et_mod$time_rounded, na.rm = TRUE), 
+                     to = max(et_mod$time_rounded, na.rm = TRUE), length.out = 100),
+  looks = levels(et_mod$looks),
+  frequency = levels(et_mod$frequency),
+  number=levels(et_mod$number),
+  type=levels(et_mod$type)
+)
+
+# Add predicted values to the prediction data frame
+pred_data$predicted_values <- predict(mod_data, newdata = pred_data)
+
+
+ggplot(pred_data, aes(x = time_rounded, y = predicted_values, color = looks)) +
+  geom_line() +
+  facet_grid(number~ interaction(frequency,type), scales = "free_y") +
+  labs(title = "Predicted Interaction Effect of Time Rounded and Looks\nacross Frequency Levels",
+       y = "Predicted Values",
+       x = "Time Rounded") +
+  theme_minimal()
+```
+
+```{r}
+
+et<-combined_train_data%>%
+  left_join(combined_et_data)%>%
+  separate(Spreadsheet.Name, into = c("type", "order", "number"), sep = "_")%>%
+  #filter(time_elapsed<5000)%>%
+  mutate(time_elapsed=case_when(type=="sound"~time_elapsed-1500,
+                                type=="image"~time_elapsed-3700))%>%
+  mutate(time_rounded = round(time_elapsed / 100) * 100)
+
+et_cats <- et %>%
+  mutate(
+    # Adjust points relative to the new center at (0.5, 0.5)
+    adjusted_x = x_pred_normalised - 0.5,
+    adjusted_y = y_pred_normalised - 0.5,
+    # Calculate angle in radians from the adjusted points
+    angle = atan2(adjusted_y, adjusted_x),
+    # Adjust angle to rotate the frame of reference so that the positive y-axis is the starting point
+    angle = angle - pi/2,
+    # Normalize the angle to be within the [0, 2*pi) range
+    angle = ifelse(angle < 0, angle + 2*pi, angle),
+    # Convert angle to degrees for easier interpretation
+    angle_deg = angle * 180 / pi,
+    # Categorize based on the adjusted angle
+    sector = case_when(
+      angle_deg < 120 ~ "redcircle.png",
+      angle_deg >= 120 & angle_deg < 240 ~ "bluesquare.png",
+      TRUE ~ "yellowtriangle.png" ),
+    # Calculate Euclidean distance from the origin (0.5, 0.5)
+    distance_from_origin = sqrt(adjusted_x^2 + adjusted_y^2),
+    # Determine if the point is within the cutoff distance
+    target_looks = if_else(sector == image, 0, 1),
+    dist1_looks = if_else(sector != image, 1, 0)
+  )%>%
+  mutate(target_looks=if_else(sector==image,1,0),
+         dist1_looks=if_else(sector!=image,1,0),
+         distance_center=if_else(distance_from_origin<.3,1,0))
+
+et_cats%>%ggplot(aes(x=adjusted_x, y=adjusted_y,color=as.factor(distance_center)))+
+  geom_point()
+  facet_grid(Spreadsheet.Name~time_rounded)
+
+et_agg<-et_cats%>%
+  group_by(type,number,time_rounded,frequency)%>%
+  mutate()%>%
+  summarize(looks_target=mean(distance_center))
+
+et_agg%>%ggplot(aes(y=looks_target,x=time_rounded,color=type))+
+  geom_jitter()+
+  geom_smooth()+
+  facet_wrap(number~frequency)
+
+et_agg<-et_cats%>%
+  filter(distance_center==0)%>%
+  group_by(type,time_rounded)%>%
+  mutate()%>%
+  summarize(looks_target=mean(target_looks))
+
+
+et_agg%>%ggplot(aes(y=looks_target,x=time_rounded,color=type))+
+  geom_jitter()+
+  geom_smooth()
+
+
+```
+
+
+```{r}
+
+library(readxl)
+et_files_6<-list.files("../pilot_data/data_exp_168927-v16/uploads",full.names = TRUE, pattern = "pqcl|b89a|w1xm|osi6")
+
+all_et_files<-et_files_6
+
+list_of_data_frames <- lapply(all_et_files, function(file) {
+  et_data <- read_excel(file)
+  et_data$et_file <- basename(file)
+  return(et_data)
+})
+
+# Combine all data frames into one
+combined_et_data <- do.call(rbind, list_of_data_frames)
+combined_et_data<-combined_et_data%>%
+  mutate(Participant.Private.ID=participant_id,
+         Spreadsheet.Row=spreadsheet_row)%>%
+  select(Participant.Private.ID,Spreadsheet.Row,time_elapsed,type,
+         face_conf,x_pred_normalised,y_pred_normalised,)%>%
+  filter(type=="prediction")
+
+
+#train dat
+et_train_6<-list.files("../pilot_data/data_exp_168927-v16/",full.names = TRUE, pattern = "pqcl|b89a|w1xm|osi6")
+
+all_train_data<-c(et_train_6)
+
+combined_train_data <- do.call(rbind, lapply(all_train_data, function(file) {
+  train_data <- read_csv(file)
+  # Optionally, add a source file column
+  train_data$source_file <- basename(file)
+  return(train_data)
+}))
+
+colnames(combined_train_data) <- gsub(" ", ".", colnames(combined_train_data))
+
+combined_train_data<-combined_train_data%>%
+  select(Participant.Private.ID,Trial.Number,Spreadsheet.Row,Spreadsheet.Name,sound_stimuli,image,frequency,tone,segment,Response,image_1,image_2,image_3,Response)%>%
+  filter(str_detect(Response, "xlsx"))%>%
+  filter(!str_detect(Response, "https"))%>%
+  mutate(et_file=Response)
+
+
+combined_train_data
+et<-combined_train_data%>%
+  left_join(combined_et_data)%>%
+  #filter(time_elapsed<5000)%>%
+  mutate(time_rounded = round(time_elapsed / 100) * 100)
+
+et%>%ggplot(aes(x=x_pred_normalised, y=y_pred_normalised,color=sound_stimuli))+
+  geom_point()+
+  facet_grid(Spreadsheet.Name~time_rounded)
+
+et_cats <- et %>%
+  mutate(
+    # Adjust points relative to the new center at (0.5, 0.5)
+    adjusted_x = x_pred_normalised - 0.5,
+    adjusted_y = y_pred_normalised - 0.5,
+    # Calculate angle in radians from the adjusted points
+    angle = atan2(adjusted_y, adjusted_x),
+    # Adjust angle to rotate the frame of reference so that the positive y-axis is the starting point
+    angle = angle - pi/2,
+    # Normalize the angle to be within the [0, 2*pi) range
+    angle = ifelse(angle < 0, angle + 2*pi, angle),
+    # Convert angle to degrees for easier interpretation
+    angle_deg = angle * 180 / pi,
+    # Categorize based on the adjusted angle
+    sector = case_when(
+      angle_deg < 120 ~ "redcircle.png",
+      angle_deg >= 120 & angle_deg < 240 ~ "bluesquare.png",
+      TRUE ~ "yellowtriangle.png" ),
+    # Calculate Euclidean distance from the origin (0.5, 0.5)
+    distance_from_origin = sqrt(adjusted_x^2 + adjusted_y^2),
+    # Determine if the point is within the cutoff distance
+    within_cutoff = distance_from_origin <= sqrt((0.6 - 0.5)^2 + (0.6 - 0.5)^2),
+    # Additional calculations as per your request
+    target_looks = if_else(sector == image, 0, 1),
+    dist1_looks = if_else(sector != image, 1, 0)
+  )%>%
+  mutate(target_looks=if_else(sector==image,1,0),
+         dist1_looks=if_else(sector!=image,1,0),
+         distance_center=if_else(distance_from_origin<.3,1,0))
+
+
+et_cats%>%ggplot(aes(x=adjusted_x, y=adjusted_y,color=as.factor(distance_center)))+
+  geom_point()
+  facet_grid(Spreadsheet.Name~time_rounded)
+
+
+et_agg<-et_cats%>%
+  group_by(Spreadsheet.Name,time_rounded)%>%
+  summarize(looks_target=mean(distance_center))%>%
+  #filter(time_rounded>1200)%>%
+  #filter(time_rounded<3000)%>%
+  #mutate(time_rounded-200)%>%
+  separate(Spreadsheet.Name, into = c("type", "order", "number"), sep = "_")
+
+et_agg%>%ggplot(aes(y=looks_target,x=time_rounded,color=type))+
+  geom_jitter()+
+  geom_smooth()+
+  facet_wrap(number~.)
+  
+et_agg<-et_cats%>%
+  group_by(Spreadsheet.Name,time_rounded)%>%
+  summarize(looks_target=mean(target_looks))%>%
+  #filter(time_rounded>1200)%>%
+  #filter(time_rounded<3000)%>%
+  #mutate(time_rounded-200)%>%
+  separate(Spreadsheet.Name, into = c("type", "order", "number"), sep = "_")
+
+et_agg%>%ggplot(aes(y=looks_target,x=time_rounded,color=type))+
+  geom_jitter()+
+  geom_smooth()+
+  facet_wrap(number~.)
+
+
+```

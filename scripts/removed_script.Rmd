@@ -1,0 +1,1922 @@
+---
+title: "distractor_removed_mice_work_flow"
+author: "Adam A. Bramlett"
+date: "2024-09-11"
+output: html_document
+---
+
+this code is for combining raw data. If you are interested in simply running the data please skip this and move forward to line 130 and start from there.
+```{r}
+# General function to read and combine CSV files from a list of directories based on a pattern
+combine_files_by_pattern <- function(directories, pattern) {
+  # Initialize an empty list to store the combined data from each directory
+  all_data <- list()
+
+  # Loop through each directory
+  for (dir in directories) {
+    # Get the list of files in the directory that match the pattern
+    files <- list.files(dir, pattern = pattern, full.names = TRUE)
+    
+    # Read and combine all filtered CSV files in the directory
+    combined_data <- bind_rows(lapply(files, function(file) {
+      data <- read_csv(file)
+      # Optionally, add a source file column
+      data$source_file <- basename(file)
+      return(data)
+    }))
+    
+    # Replace spaces in column names with dots
+    colnames(combined_data) <- gsub(" ", ".", colnames(combined_data))
+    
+    # Add the combined data to the list
+    all_data <- append(all_data, list(combined_data))
+  }
+
+  # Combine all data into a single dataframe
+  final_data <- bind_rows(all_data)
+  
+  return(final_data)
+}
+
+# Define the base path
+path <- "../extension_data"
+
+# List of subdirectories within the base path
+directories <- c(
+  paste0(path, "/data_exp_187631-v4/"),#japanese
+  paste0(path, "/data_exp_187633-v4/"),#mandarin
+  #paste0(path, "/data_exp_187632-v4/"),
+  paste0(path, "/data_exp_187630-v3/")#minnan
+  #,paste0(path, "/data_exp_187747-v3/")#mandarin version 2 with longer words
+)
+
+test_data <- combine_files_by_pattern(directories, "31k6|77al")
+train_data <- combine_files_by_pattern(directories, "ci6a|rkna|3ud8|4nzj")
+quest_data <- combine_files_by_pattern(directories, "iali")
+
+#write.csv(test_data, "../data_syb/test_data_extension.csv", row.names = FALSE)
+#write.csv(train_data, "../data_syb/train_data_extension.csv", row.names = FALSE)
+#write.csv(quest_data, "../data_syb/quest_extension.csv", row.names = FALSE)
+```
+
+```{r}
+#### et data
+library(readxl)
+# Function to read and combine Excel files from 'uploads' subfolders across directories based on a pattern
+combine_et_files_by_pattern <- function(directories, pattern) {
+  # Initialize an empty list to store the combined data from each directory
+  all_data <- list()
+
+  # Loop through each directory
+  for (dir in directories) {
+    # Define the path to the 'uploads' subfolder
+    upload_path <- file.path(dir, "uploads")
+    
+    # Get the list of files in the 'uploads' subfolder that match the pattern
+    files <- list.files(upload_path, pattern = pattern, full.names = TRUE)
+    
+    # Read and process each Excel file
+    list_of_data_frames <- lapply(files, function(file) {
+      et_data <- read_excel(file)
+      et_data$et_file <- basename(file)
+      return(et_data)
+    })
+    
+    # Combine the list of data frames into one data frame
+    combined_data <- do.call(rbind, list_of_data_frames)
+    
+    # Perform the necessary data transformations
+    combined_data <- combined_data %>%
+      mutate(Participant.Private.ID = participant_id,
+             Spreadsheet.Row = spreadsheet_row) %>%
+      select(Participant.Private.ID, Spreadsheet.Row, screen_index, time_stamp, type,
+             face_conf, x_pred_normalised, y_pred_normalised, et_file) %>%
+      filter(type == "prediction") %>%
+      group_by(Participant.Private.ID, et_file) %>%
+      mutate(time = time_stamp - min(time_stamp)) %>%
+      ungroup()  # Ungroup to avoid grouped output issues
+    
+    # Add the processed data to the list
+    all_data <- append(all_data, list(combined_data))
+  }
+
+  # Combine all processed data into a single dataframe
+  final_data <- bind_rows(all_data)
+  
+  return(final_data)
+}
+
+# Define the base path
+path <- "../extension_data"
+
+# Pattern for filtering files in the 'uploads' subfolders
+pattern_et <- "ci6a|rkna|3ud8|4nzj"
+
+library(conflicted)
+# Combine and process the ET files
+et_data <- combine_et_files_by_pattern(directories, pattern_et)
+
+# Write the combined ET data to a CSV file
+#write.csv(et_data, "../data_syb/combined_et_data_extension.csv", row.names = FALSE)
+```
+
+```{r}
+# Reading the data back from the saved CSV files
+et_data <- read.csv("../data_syb/combined_et_data_extension.csv")
+test_data <- read.csv("../data_syb/test_data_extension.csv")
+train_data <- read.csv("../data_syb/train_data_extension.csv")
+quest_data <- read.csv("../data_syb/quest_extension.csv")
+```
+
+```{r}
+#language questionnaire
+lang_quest<-quest_data%>%
+  select(Participant.Private.ID,Question,Object.Name,
+         Object.Number,Object.ID,Response.Type,Key,Response,`randomiser-ggy2`)%>%
+  filter(Response!="BEGIN"&Response!="END",Key != "quantised")%>%
+  mutate_all(~gsub('-', "_", .))%>%
+  mutate_all(~gsub('-', "_", .))%>%
+  mutate_all(~gsub('Mandarin Chinese', "Mandarin", .))%>%
+  mutate_all(~gsub('Chinese', "Mandarin", .))
+
+basic_background<-lang_quest%>%
+  filter(Object.Name=="age"|
+         Object.Name=="gender"|
+         Object.Name=="education"|
+         Object.Name=="mother_education"|
+         Object.Name=="father_education"|
+         Object.Name=="number_of_langs")%>%
+  select(Participant.Private.ID,Object.Name,Response)%>%
+  pivot_wider(names_from = Object.Name,values_from = Response)%>%
+  mutate_all(~gsub('c\\("__other", "', "", .))%>%
+  mutate_all(~gsub('"\\)', "", .))%>%
+  mutate_all(~gsub(' languages', "", .))%>%
+  mutate_all(~gsub(' language', "", .))%>%
+  mutate_all(~gsub('Graduate _ ', "", .))%>%
+  mutate_all(~gsub('College _ ', "", .))
+
+linguistic_background<-lang_quest%>%
+  filter(Object.Name!="age"&
+         Object.Name!="gender"&
+         Object.Name!="education"&
+         Object.Name!="mother_education"&
+         Object.Name!="father_education"&
+         Object.Name!="number_of_langs")%>%
+  select(Participant.Private.ID,Object.Name,Response)
+  
+dom_acqu<-linguistic_background%>%
+  filter(grepl("order", Object.Name, ignore.case = TRUE))%>%
+  mutate(first_char = substr(Object.Name, 1, 1),
+         rest_of_name = substr(Object.Name, 2, nchar(Object.Name)))%>%
+  group_by(Participant.Private.ID,rest_of_name) %>%
+  mutate(item_count = row_number(),
+         item=paste(rest_of_name,"_",item_count,sep = ""))%>%
+  ungroup()%>%
+  select(Participant.Private.ID, item,Response)%>%
+  pivot_wider(names_from = item, values_from=Response)
+
+dom_acqu <- dom_acqu %>%
+  rowwise() %>%
+  select(Participant.Private.ID, order(names(.)))%>%
+  mutate(list_o_all_langs = paste(c_across(2:(ncol(dom_acqu)-1)), collapse = ","))
+
+ordering_lang<-linguistic_background%>%
+  filter(!grepl("order", Object.Name, ignore.case = TRUE))%>%
+  pivot_wider(names_from = Object.Name, values_from=Response)%>%
+  mutate(language1=paste(language1,`1lang_english_check`,sep=""))%>%
+  mutate_all(~gsub('NA', "", .))
+
+lang_group<-lang_quest%>%
+  select(Participant.Private.ID,`randomiser-ggy2`)%>%
+  unique()
+
+language_condition_quest<-train_data%>%
+  select(Participant.Private.ID,Spreadsheet.Name)%>%
+  mutate(language_condition = sub(".*_", "", Spreadsheet.Name))%>%
+  select(-Spreadsheet.Name)%>%
+  unique()%>%
+  na.omit()%>%
+  mutate(Participant.Private.ID=as.character(Participant.Private.ID))
+
+
+lang_back<-basic_background%>%
+  left_join(dom_acqu)%>%
+  left_join(ordering_lang)%>%
+  mutate(monolingual=if_else(is.na(`1lang_english_check`),0,1))%>%
+  select(!`1lang_english_check`)%>%
+  mutate(first_lang_is_lang=if_else(language1 ==lang_acquisition_order_1,1,0),
+         second_lang_is_lang=if_else(language2 ==lang_acquisition_order_2,1,0),
+         first_dom_is_lang=if_else(language1 ==lang_dominance_order_1,1,0),
+         second_dom_is_lang=if_else(language2 ==lang_dominance_order_2,1,0))%>%
+  mutate(lang_acquisition_order_1=if_else(monolingual==1,language1,lang_acquisition_order_1),
+         lang_dominance_order_1=if_else(monolingual==1,language1,lang_dominance_order_1))%>%
+  mutate(lang_acquisition_order_2=if_else(monolingual==1,"none",lang_acquisition_order_2),
+         lang_dominance_order_2=if_else(monolingual==1,"none",lang_dominance_order_2))%>%
+  ungroup()%>%
+  left_join(lang_group)%>%
+  left_join(language_condition_quest)%>%
+  mutate(age=as.numeric(age))
+
+
+overall_mean_age <- mean(lang_back$age)
+overall_sd_age <- sd(lang_back$age)
+
+# Group and calculate both group-specific and overall statistics
+aggs_quest <- lang_back %>%
+  group_by(language_condition, `randomiser-ggy2`) %>%
+  summarize(
+    mean_age = mean(age),
+    sd_age = sd(age),
+    min_age = min(age),
+    max_age = max(age))%>%
+  mutate(overall_mean_age = overall_mean_age,
+         overall_sd_age = overall_sd_age)
+
+
+ggplot(aggs_quest, aes(x = interaction(language_condition, `randomiser-ggy2`), y = mean_age)) +
+  geom_point(size = 3) + 
+  geom_errorbar(aes(ymin = mean_age - sd_age, ymax = mean_age + sd_age), width = 0.2) +
+  geom_hline(yintercept = overall_mean_age, linetype = "dashed", color = "red", size = 1) +
+  geom_text(aes(x = 3.5, y = overall_mean_age, label = paste("Overall Mean:", round(overall_mean_age, 2)),alpha=.4), 
+            vjust = -1, color = "red") + 
+  geom_text(aes(label = paste("Min:", min_age), y = min_age), vjust = 1.5, color = "blue") + 
+  geom_text(aes(label = paste("Max:", max_age), y = max_age), vjust = 1.5, color = "blue") + 
+  labs(title = "Mean Age per Group with SD, Min, and Max",
+       x = "Group (language_condition x randomiser)",
+       y = "Mean Age") +
+  geom_point(aes(y = min_age), color = "blue", alpha = 0.5, size = 2) +
+  geom_point(aes(y = max_age), color = "blue", alpha = 0.5, size = 2)+
+  theme_minimal() -> age
+
+ggsave(filename = "visualizations/questionnaire_visualizations/age.png",plot = age,width = 10,height = 6,dpi = 300)
+
+
+# Clean up numeric ratings and selectively handle NAs
+quest_agg2 <- lang_back %>%
+  mutate(
+    # Clean up language proficiency scores and age_start_learning
+    l1_speaking_score = as.numeric(sub(" _.*", "", l1_speaking)),
+    l1_comprehension_score = as.numeric(sub(" _.*", "", l1_comprehension)),
+    l1_age_start_learning = as.numeric(l1_age_start_learning),
+    l2_speaking_score = as.numeric(sub(" _.*", "", l2_speaking)),
+    l2_comprehension_score = as.numeric(sub(" _.*", "", l2_comprehension)),
+    l2_age_start_learning = as.numeric(l2_age_start_learning),
+    l3_speaking_score = as.numeric(sub(" _.*", "", l3_speaking)),
+    l3_comprehension_score = as.numeric(sub(" _.*", "", l3_comprehension)),
+    l3_age_start_learning = as.numeric(l3_age_start_learning),
+    l4_speaking_score = as.numeric(sub(" _.*", "", l4_speaking)),
+    l4_comprehension_score = as.numeric(sub(" _.*", "", l4_comprehension)),
+    l4_age_start_learning = as.numeric(l4_age_start_learning),
+    l5_speaking_score = as.numeric(sub(" _.*", "", l5_speaking)),
+    l5_comprehension_score = as.numeric(sub(" _.*", "", l5_comprehension)),
+    l5_age_start_learning = as.numeric(l5_age_start_learning)
+  ) %>%
+  select(Participant.Private.ID, monolingual, `randomiser-ggy2`, language_condition,
+         l1_speaking_score, l1_comprehension_score, l1_age_start_learning,
+         l2_speaking_score, l2_comprehension_score, l2_age_start_learning,
+         l3_speaking_score, l3_comprehension_score, l3_age_start_learning,
+         l4_speaking_score, l4_comprehension_score, l4_age_start_learning,
+         l5_speaking_score, l5_comprehension_score, l5_age_start_learning) %>%
+  mutate(across(ends_with("speaking_score"):ends_with("comprehension_score"), ~ replace_na(., 0)))
+
+quest_agg2_long <- quest_agg2 %>%
+  pivot_longer(
+    cols = c(starts_with("l1"), starts_with("l2"), starts_with("l3"), 
+             starts_with("l4"), starts_with("l5")),  # Pivot language columns
+    names_to = c("language", "attribute"),
+    names_pattern = "(l\\d)_(speaking|comprehension|age_start_learning)",  # Remove _score
+    values_to = "score"
+  ) %>%
+  filter(!is.na(score))
+  
+
+
+lang_Xs<-ggplot(quest_agg2_long%>%
+                  filter(attribute=="age_start_learning",language!="l1"), aes(x = language, y = score, group = interaction(Participant.Private.ID,language), color = language)) +
+  geom_jitter() +
+  labs(
+    title = "Participant Scores Across Languages and Attributes",
+    x = "Attribute (Speaking, Comprehension, Age Start Learning)",
+    y = "Age started learning additional languages",
+    color = "Language") +
+  theme_minimal()
+
+ggsave(filename = "visualizations/questionnaire_visualizations/lang_Xs.png", plot = lang_Xs,width = 10,height = 6,dpi = 300)
+
+set.seed(123)
+lang_age<-ggplot(quest_agg2_long%>%filter(attribute!="age_start_learning"), aes(x = attribute, y = score, group = interaction(Participant.Private.ID,language), color = language)) +
+  geom_point(position = position_jitter(width = 0.5, height = 0.5)) +
+  labs(
+    title = "Participant Scores Across Languages and Attributes",
+    x = "Attribute (Speaking, Comprehension, Age Start Learning)",
+    y = "Score for speaking and comprehension",
+    color = "Language") +
+  theme_minimal()
+ggsave(filename = "visualizations/questionnaire_visualizations/lang_age.png", plot = lang_age,width = 10,height = 6,dpi = 300)
+
+#participant with high L2 score is an L2 Swahili speaker in the Mandarin condition. Because the fricatives do not overlap we do not expect this to be an issue. We will proceeed without removal because they said that English was their first and most dominant language with high accent percent in their L2 in accoradance with Finding the Native Speakers by Brown and Colleagues: https://doi.org/10.1017/S0142716423000064
+```
+
+```{r}
+attention<-train_data%>%
+  select(Participant.Private.ID,Spreadsheet.Name,Response,image,image_1:image_3,display,sound_stimuli,audio_1,audio_2,audio_3,Screen.Name,Zone.Name,Zone.Type,tester_1:tester_3)%>%
+  filter(str_detect(display, "test"))%>%
+  filter(Screen.Name=="Screen 6")%>%
+  filter(Zone.Type == "response_keyboard_single"|Zone.Type == "response_button_image")%>%
+  mutate(participant_response=case_when(Response==1&str_detect(display, "test_sound")~tester_1,
+                                   Response==2&str_detect(display, "test_sound")~tester_2,
+                                   Response==3&str_detect(display, "test_sound")~tester_3,
+                                   str_detect(Response, "png")~Response))%>%
+  mutate(response_correct = case_when(str_detect(display, "test_sound")&sound_stimuli==participant_response~0,
+                                      str_detect(display, "test_sound")&sound_stimuli!=participant_response~1,
+                                      str_detect(display, "test_image")&image==participant_response~0,
+                                      str_detect(display, "test_image")&image!=participant_response~1))
+  
+attention_agg<-attention%>%
+  group_by(Participant.Private.ID)%>%
+  summarize(score=sum(response_correct))%>%
+  mutate(score_normalized=(score),
+         mean=mean(score_normalized),
+         sd=sd(score_normalized),
+         max=mean+sd*2,
+         min=mean-sd*2)
+
+attention_agg%>%ggplot(aes(x=Participant.Private.ID,y=score_normalized,color=factor(score)))+
+  geom_point()+
+  geom_hline(aes(yintercept = mean))+
+  geom_hline(aes(yintercept = max))+
+  geom_hline(aes(yintercept = min))
+attention_agg%>%ggplot(aes(x=Participant.Private.ID,y=score,color=factor(score)))+
+  geom_point()+
+  geom_hline(aes(yintercept = mean))+
+  geom_hline(aes(yintercept = max))+
+  geom_hline(aes(yintercept = min))
+
+
+remove_attention_agg<-attention_agg%>%filter(score>=3)
+keep_attention_agg<-attention_agg%>%filter(score<3)
+nrow(remove_attention_agg)
+nrow(keep_attention_agg)
+
+#16
+162/178
+#8
+154/178
+
+#32
+146/178
+#7
+144/178
+```
+
+
+
+```{r}
+image_1_m<-c("phe_fo","o_lc")
+image_2_m<-c("o_ho","tshe_r")
+image_3_m<-c("tshe_lo","phe_hc")
+image_1_c<-c("sh_ao","ji_ou")
+image_2_c<-c("zh_ou","qi_ang")
+image_3_c<-c("ch_ang","xi_ao")
+image_1_k<-c("p_al","b_ul")
+image_2_k<-c("p_ul","b_at")
+image_3_k<-c("p_at","b_al")
+image_1_j<-c("h_eeya","t_ori")
+image_2_j<-c("t_oori","sh_iku")
+image_3_j<-c("sh_iiku","h_eya")
+
+# Combine the different image sets into single vectors
+image_1 <- c(image_1_m, image_1_c, image_1_k, image_1_j)
+image_2 <- c(image_2_m, image_2_c, image_2_k, image_2_j)
+image_3 <- c(image_3_m, image_3_c, image_3_k, image_3_j)
+
+# Now update the test_data processing
+test_data_cleaned <- test_data %>%
+  filter(Participant.Private.ID %in% keep_attention_agg$Participant.Private.ID) %>%
+  select(Participant.Private.ID, Spreadsheet.Name, Reaction.Time, Screen.Name, Zone.Name, Response, Reaction.Time, image, audio_1, audio_2, audio_3, stimulus, randomise_trials, frequency, segment, image, Trial.Number,`randomiser-ggy2`,Zone.Type)%>%
+  filter(randomise_trials == 4)%>%
+  filter(Screen.Name == "Screen 5")%>%
+  filter(Zone.Type == "response_keyboard_single")%>%
+  mutate(
+    selected_stimulus = case_when(
+      Response == 2 ~ audio_1,
+      Response == 1 ~ audio_2,
+      Response == 3 ~ audio_3
+    ),
+    match_stimulus = case_when(
+      selected_stimulus %in% paste0(image_1, "2.mp3") | selected_stimulus %in% paste0(image_1, ".mp3") ~ "bluesquare.png",
+      selected_stimulus %in% paste0(image_2, "2.mp3") | selected_stimulus %in% paste0(image_2, ".mp3") ~ "redcircle.png",
+      selected_stimulus %in% paste0(image_3, "2.mp3") | selected_stimulus %in% paste0(image_3, ".mp3") ~ "yellowtriangle.png"
+    ),
+    correct = if_else(stimulus == selected_stimulus, 1, 0),
+    language = Spreadsheet.Name,
+    order.pattern = `randomiser-ggy2`
+  )
+
+#participant removal  
+participant_medians <- test_data_cleaned %>%
+  mutate(norm_rt = log(Reaction.Time)) %>%
+  group_by(Participant.Private.ID) %>%
+  summarise(median_rt = median(norm_rt),
+            MAD = mad(norm_rt)) %>%
+  ungroup()
+
+# Step 2: Compute the MAD of median_rt across all participants
+overall_median_rt <- median(participant_medians$median_rt)
+overall_MAD <- mad(participant_medians$median_rt)
+
+# Step 3: Create the upper and lower MAD thresholds across participants
+participant_medians <- participant_medians %>%
+  mutate(upper_MAD = overall_median_rt + 3 * overall_MAD,
+         lower_MAD = overall_median_rt - 3 * overall_MAD)
+
+
+# Step 4: Filter based on these thresholds
+test_data_cleaned <- participant_medians %>%
+  left_join(test_data_cleaned, by = "Participant.Private.ID") %>%
+  filter(Reaction.Time > 200) %>%
+  mutate(trial_rounded = round(as.numeric(Trial.Number) / 10) * 10,
+         test = sub("^(test_[0-9]+)_.*", "\\1", language),
+         language = gsub("test_[0-9]+_", "", language))
+
+ggplot(participant_medians, aes(x = Participant.Private.ID, y = median_rt)) +
+  geom_point(color = "blue", size = 3) +  # Plot median reaction times for each participant
+  geom_hline(aes(yintercept = median(median_rt)), color = "green", linetype = "dashed", size = 1) +  # Median line
+  geom_hline(aes(yintercept = upper_MAD), color = "red", linetype = "dashed", size = 1) +  # Upper MAD line
+  geom_hline(aes(yintercept = lower_MAD), color = "red", linetype = "dashed", size = 1) +  # Lower MAD line
+  labs(title = "Participants' Median Reaction Times with MAD Boundaries",
+       x = "Participant",
+       y = "Log of Median Reaction Time") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) 
+
+
+nrow(participant_medians_keep_rt)
+length(unique(test_data_cleaned$Participant.Private.ID))
+before_rem<-nrow(test_data_cleaned)
+
+#kitems removal
+test_data_cleaned<-test_data_cleaned%>%
+  filter(Reaction.Time>200)%>%
+  mutate(norm_rt=log(Reaction.Time),
+         median_rt=median(norm_rt),
+         normal_rt=abs(median_rt-norm_rt))%>%
+  mutate(MAD=sum(normal_rt)/n(),
+         upper_MAD=MAD*3+median_rt,
+         lower_MAD=median_rt-MAD*3)%>%
+  filter(norm_rt>lower_MAD & norm_rt<upper_MAD)%>%
+  mutate(trial_rounded = round(as.numeric(Trial.Number)/10) * 10)%>%
+  mutate(test = sub("^(test_[0-9]+)_.*", "\\1", language),
+    language = gsub("test_[0-9]+_", "", language))
+
+after_rem<-nrow(test_data_cleaned)
+before_rem-after_rem
+(before_rem-after_rem)/before_rem
+
+test_data_cleaned%>%ggplot(aes(x=Reaction.Time,fill=as.factor(Participant.Private.ID)))+
+  geom_density(position = 'identity',alpha=.5)+
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+```{r}
+test_data_agg<-test_data_cleaned%>%
+  mutate(frequency=as.factor(frequency),
+         Participant.Private.ID=as.factor(Participant.Private.ID),
+         Spreadsheet.Name=as.factor(Spreadsheet.Name))%>%
+  dplyr::group_by(Participant.Private.ID,frequency,language,order.pattern)%>%
+  dplyr::summarize(score=mean(correct))%>%
+  mutate(group=if_else(order.pattern=="image_first",1,0))
+
+
+test_data_agg%>%
+  ggplot()+
+  geom_jitter(aes(x=interaction(frequency,order.pattern),y=score,color=frequency),size=3)+
+
+  geom_boxplot(aes(x=interaction(frequency,order.pattern),y=score,fill=frequency),alpha=.2,width=.1)+
+  theme_minimal()+
+  geom_hline(yintercept=.33, linetype="dashed", color = "black")+
+  scale_y_continuous(limits = c(-0.2, 1.2))+
+  facet_grid(.~language)
+  
+test_data_agg%>%filter(language!="korean")%>%
+  ggplot()+
+  geom_dotplot(aes(x=interaction(frequency,order.pattern),y=score,fill=frequency),
+               binaxis = "y", stackdir = "center")+
+  geom_boxplot(aes(x=interaction(frequency,order.pattern),
+                  y=score,
+                  color=frequency),
+              alpha=.2,width=.5,fill="white")+
+  geom_line(aes(x=interaction(frequency, order.pattern), 
+                y=score, 
+                group=Participant.Private.ID), 
+            color="black", size=0.5, alpha=0.5)+
+  theme_minimal()+
+  geom_hline(yintercept=.33, linetype="dashed", color = "black")+
+  scale_y_continuous(limits = c(0, 1))+
+  scale_fill_manual(values = c("#C41230", "#043673"))+
+  scale_color_manual(values = c("#C41230", "#043673"))+
+  facet_grid(language~.)
+
+existing_files <- list.files("visualizations/")
+base_filename <- "accuracy_connect_participant"
+new_filename <- paste0(base_filename, length(existing_files) + 1, ".png")
+ggsave(filename = paste0("visualizations/", new_filename), plot = last_plot(), width = 8, height = 6)
+
+test_data_agg%>%filter(language!="korean")%>%
+  ggplot()+
+  geom_dotplot(aes(x=interaction(frequency,order.pattern),y=score,fill=frequency),
+               binaxis = "y", stackdir = "center",alpha=.3)+
+  geom_violin(aes(x=interaction(frequency,order.pattern),
+                  y=score,
+                  fill=frequency,
+                  color=frequency),
+              alpha=.2,width=2)+
+  geom_boxplot(aes(x=interaction(frequency,order.pattern),
+                  y=score,
+                  color=frequency),
+              alpha=.2,width=.05,fill="white")+
+  theme_minimal()+
+  geom_hline(yintercept=.33, linetype="dashed", color = "black")+
+  scale_y_continuous(limits = c(0, 1))+
+  scale_fill_manual(values = c("#C41230", "#043673"))+
+  scale_color_manual(values = c("#C41230", "#043673"))+
+  facet_grid(language~.)
+
+base_filename <- "accuracy_by_participant"
+new_filename <- paste0(base_filename, length(existing_files) + 1, ".png")
+ggsave(filename = paste0("visualizations/", new_filename), plot = last_plot(), width = 8, height = 6)
+
+test_data_agg1<-test_data_cleaned%>%
+  mutate(frequency=as.factor(frequency),
+         Participant.Private.ID=as.factor(Participant.Private.ID),
+         Spreadsheet.Name=as.factor(order.pattern))%>%
+  dplyr::group_by(order.pattern,frequency,language)%>%
+  dplyr::summarize(score=mean(correct))%>%
+  mutate(group=if_else(order.pattern=="image_first",1,0))%>%
+  filter(language!="korean")
+
+test_data_agg1%>%
+  ggplot()+
+  geom_point(aes(x=interaction(order.pattern),y=score,color=frequency,fill=language,alpha=.1,size=3))+
+  theme_minimal()+
+  geom_hline(yintercept=.33, linetype="dashed", color = "black")+
+  scale_y_continuous(limits = c(0.0, 1))+
+  facet_grid(.~language)
+
+base_filename <- "accuracy_overall"
+new_filename <- paste0(base_filename, length(existing_files) + 1, ".png")
+ggsave(filename = paste0("visualizations/", new_filename), plot = last_plot(), width = 8, height = 6)
+
+
+```
+
+```{r}
+# Define the image sets
+image_1_m <- c("phe_fo", "o_lc")
+image_2_m <- c("o_ho", "tshe_r")
+image_3_m <- c("tshe_lo", "phe_hc")
+image_1_c <- c("sh_ao", "ji_ou")
+image_2_c <- c("zh_ou", "qi_ang")
+image_3_c <- c("ch_ang", "xi_ao")
+image_1_j <- c("h_eeya", "t_ori")
+image_2_j <- c("t_oori", "sh_iku")
+image_3_j <- c("sh_iiku", "h_eya")
+
+# Combine all image sets into a single list
+all_images <- c(image_1_m, image_2_m, image_3_m, image_1_c, image_2_c, image_3_c, image_1_j, image_2_j, image_3_j)
+
+# Create a dataframe with a single column called target_words
+df <- data.frame(target_word = all_images)
+
+# Add target_image column using mutate and case_when
+df <- df %>%
+  mutate(target_image = case_when(
+    target_word %in% image_1_m | target_word %in% image_1_c | target_word %in% image_1_j ~ "image_1",
+    target_word %in% image_2_m | target_word %in% image_2_c | target_word %in% image_2_j ~ "image_2",
+    target_word %in% image_3_m | target_word %in% image_3_c | target_word %in% image_3_j ~ "image_3"
+  ))
+
+# Define a function to extract the relevant part for matching
+get_relevant_part <- function(word, is_mandarin) {
+  parts <- strsplit(word, "_")[[1]]
+  if (is_mandarin) {
+    return(parts[2])  # For Mandarin words (_c), use the second part
+  } else {
+    return(parts[1])  # For other words, use the first part
+  }
+}
+
+# Assign relevant part to each word based on whether it is Mandarin (_c)
+df <- df %>%
+  mutate(is_mandarin = target_word %in% c(image_1_c, image_2_c, image_3_c)) %>%
+  mutate(relevant_part = ifelse(is_mandarin, sapply(strsplit(target_word, "_"), `[`, 2),
+                                sapply(strsplit(target_word, "_"), `[`, 1)))%>%
+  group_by(relevant_part) %>%
+  mutate(possibles = list(target_word))%>%
+  ungroup()%>%
+  rowwise() %>%
+  mutate(competitor_word = ifelse(length(possibles) > 1, 
+                                  possibles[which(possibles != target_word)[1]], 
+                                  NA)) %>%
+  ungroup()
+
+# Now join to get the competitor_image based on the competitor_word's target_image
+df <- df %>%
+  left_join(df %>% select(target_word, target_image), by = c("competitor_word" = "target_word")) %>%
+  rename(competitor_image = target_image.y,
+         target_image = target_image.x)
+# Remove the is_mandarin and relevant_part columns
+result_key <- df %>%
+  select(target_word, target_image, competitor_word, competitor_image)
+
+
+```
+
+
+
+```{r}
+
+test_data_cleaned_rem<-test_data_cleaned%>%
+  mutate(stimulus_word= str_remove(stimulus, "2.mp3"))%>%
+  mutate(target_word= str_remove(stimulus_word, "\\.mp3"))%>%
+  left_join(result_key)%>%
+  mutate(target_image = case_when(
+    target_image == "image_1" ~ "bluesquare",
+    target_image == "image_2" ~ "redcircle",
+    target_image == "image_3" ~ "yellowtriangle",
+    TRUE ~ target_image  # Keep the value unchanged if it doesn't match
+  ),
+  competitor_image = case_when(
+    competitor_image == "image_1" ~ "bluesquare",
+    competitor_image == "image_2" ~ "redcircle",
+    competitor_image == "image_3" ~ "yellowtriangle",
+    TRUE ~ competitor_image  # Keep the value unchanged if it doesn't match
+  ))%>%
+  mutate(match_stimulus_word=str_remove(match_stimulus, "\\.png"))%>%
+  ungroup()%>%
+  mutate(target_selected=ifelse(match_stimulus_word == target_image,1,0),
+         comp_selected=ifelse(match_stimulus_word == competitor_image,1,0),
+         dist_selected=ifelse(target_selected==0&comp_selected==0,1,0))%>%
+  mutate(sum_sanity=target_selected+comp_selected+dist_selected)%>%
+  dplyr::filter(dist_selected!=1)
+
+```
+```{r}
+test_data_rem_agg<-test_data_cleaned_rem%>%
+  #filter(Trial.Number<100)%>%
+  mutate(frequency=as.factor(frequency),
+         Participant.Private.ID=as.factor(Participant.Private.ID),
+         Spreadsheet.Name=as.factor(Spreadsheet.Name))%>%
+  dplyr::group_by(Participant.Private.ID,frequency,language,order.pattern)%>%
+  dplyr::summarize(score=mean(correct))%>%
+  mutate(group=if_else(order.pattern=="image_first",1,0))%>%
+  filter(Participant.Private.ID!="10563568")
+
+test_data_rem_agg%>%filter(language!="korean")%>%
+  #filter(Participant.Private.ID!="10594134")%>%
+  ggplot()+
+  geom_dotplot(aes(x=interaction(frequency,order.pattern),y=score,fill=frequency),
+               binaxis = "y", stackdir = "center")+
+  #geom_violin(aes(x=interaction(frequency,order.pattern),
+  #                y=score,
+  #                fill=frequency,
+  #                color=frequency),
+  #            alpha=.2,width=1)+
+  geom_boxplot(aes(x=interaction(frequency,order.pattern),
+                  y=score,
+                  color=frequency),
+              alpha=.2,width=.5,fill="white")+
+  geom_line(aes(x=interaction(frequency, order.pattern), 
+                y=score, 
+                group=Participant.Private.ID), 
+            color="black", size=0.5, alpha=0.5)+
+  theme_minimal()+
+  geom_hline(yintercept=.33, linetype="dashed", color = "black")+
+  scale_y_continuous(limits = c(0, 1))+
+  scale_fill_manual(values = c("#C41230", "#043673"))+
+  scale_color_manual(values = c("#C41230", "#043673"))+
+  facet_grid(language~.)
+
+test_data_rem_agg%>%filter(language!="korean")%>%
+  #filter(Participant.Private.ID!="10594134")%>%
+  ggplot()+
+  geom_dotplot(aes(x=interaction(frequency,order.pattern),y=score,fill=frequency),
+               binaxis = "y", stackdir = "center",alpha=.3)+
+  geom_violin(aes(x=interaction(frequency,order.pattern),
+                  y=score,
+                  fill=frequency,
+                  color=frequency),
+              alpha=.2,width=2)+
+  geom_boxplot(aes(x=interaction(frequency,order.pattern),
+                  y=score,
+                  color=frequency),
+              alpha=.2,width=.05,fill="white")+
+  theme_minimal()+
+  geom_hline(yintercept=.33, linetype="dashed", color = "black")+
+  scale_y_continuous(limits = c(0, 1))+
+  scale_fill_manual(values = c("#C41230", "#043673"))+
+  scale_color_manual(values = c("#C41230", "#043673"))+
+  facet_grid(language~.)
+
+test_data_rem_agg1<-test_data_cleaned_rem%>%
+  mutate(frequency=as.factor(frequency),
+         Participant.Private.ID=as.factor(Participant.Private.ID),
+         Spreadsheet.Name=as.factor(order.pattern))%>%
+  dplyr::group_by(order.pattern,frequency,language)%>%
+  dplyr::summarize(score=mean(correct))%>%
+  mutate(group=if_else(order.pattern=="image_first",1,0))%>%
+  filter(language!="korean")
+
+test_data_rem_agg1%>%
+  ggplot()+
+  geom_point(aes(x=interaction(order.pattern),y=score,color=frequency,fill=language,alpha=.1,size=3))+
+  theme_minimal()+
+  geom_hline(yintercept=.33, linetype="dashed", color = "black")+
+  scale_y_continuous(limits = c(0.0, 1))+
+  #scale_color_manual(values = c("#C41230", "#043673"))+
+  facet_grid(.~language)
+  
+  #geom_line(aes(x=Spreadsheet.Name,y=score,group=interaction(Participant.Private.ID,spread),color=frequency))
+
+```
+
+```{r}
+# Function to compare models for a specific language and return the best model based on AIC
+compare_models <- function(data, frequency_var, id_var, image_var, correct_var, spreadsheet_name_var) {
+  
+  # Helper function to fit model and catch errors or convergence warnings
+  safe_glmer <- function(formula, data) {
+    tryCatch(
+      {
+        glmer(formula, family = binomial, data = data, 
+              control = glmerControl(optCtrl = list(maxfun = 100000)))
+      },
+      error = function(e) {
+        return(NULL)  # Return NULL if the model fails
+      },
+      warning = function(w) {
+        return(NULL)  # Return NULL if there's a warning like non-convergence
+      }
+    )
+  }
+
+  # Model 1: Complex
+  m1_formula <- as.formula(paste(correct_var, "~", frequency_var, "*", spreadsheet_name_var, "+ (", image_var, "|", id_var, ")"))
+  m1 <- safe_glmer(m1_formula, data)
+  
+  # Model 2: Reduced random effects
+  m2_formula <- as.formula(paste(correct_var, "~", frequency_var, "*", spreadsheet_name_var, "+ (", image_var, "||", id_var, ")"))
+  m2 <- safe_glmer(m2_formula, data)
+  
+  # Model 3: Simplified random effects
+  m3_formula <- as.formula(paste(correct_var, "~", frequency_var, "*", spreadsheet_name_var, "+ (1|", id_var, ")"))
+  m3 <- safe_glmer(m3_formula, data)
+
+
+  # Collect models and filter out the ones that failed
+  models <- list(m1, m2, m3)
+  models <- models[!sapply(models, is.null)]  # Remove NULL models
+
+  # Compare models and select the best one based on AIC
+  if (length(models) > 0) {
+    bic_values <- sapply(models, BIC)  # Use BIC instead of AIC
+    best_model <- models[[which.min(bic_values)]]
+    return(best_model)
+  } else {
+    return("No models converged.")
+  }
+}
+
+
+recode_and_reorder <- function(data) {
+  # Rename levels for Spreadsheet.Name
+  levels(data$Spreadsheet.Name) <- c("Non-discriminative", "Discriminative")
+  
+  # Rename levels for frequency
+  levels(data$frequency) <- c("Low","High")
+  
+  #Reorder factor levels so that Non-discriminative is the baseline for Spreadsheet.Name
+  data$Spreadsheet.Name <- factor(data$Spreadsheet.Name, levels = c("Non-discriminative","Discriminative"))
+  
+  # Reorder factor levels so that High is the baseline for frequency
+  data$frequency <- factor(data$frequency, levels = c("High","Low"))
+  
+  return(data)
+}
+
+
+model_data_c<-test_data_cleaned%>%
+  filter(language=="mandarin")%>%
+  mutate(frequency=as.factor(frequency),
+         Spreadsheet.Name=as.factor(`randomiser-ggy2`))
+model_data_m<-test_data_cleaned%>%
+  filter(language=="minnan")%>%
+  mutate(frequency=as.factor(frequency),
+         Spreadsheet.Name=as.factor(`randomiser-ggy2`))
+model_data_j<-test_data_cleaned%>%
+  filter(language=="japanese")%>%
+  mutate(frequency=as.factor(frequency),
+         Spreadsheet.Name=as.factor(`randomiser-ggy2`))
+
+
+#model_data_c<-test_data_cleaned_rem%>%
+#  filter(language=="mandarin")%>%
+#  mutate(frequency=as.factor(frequency),
+#         Spreadsheet.Name=as.factor(`randomiser-ggy2`))
+#model_data_m<-test_data_cleaned_rem%>%
+#  filter(language=="minnan")%>%
+#  mutate(frequency=as.factor(frequency),
+#         Spreadsheet.Name=as.factor(`randomiser-ggy2`))
+#model_data_j<-test_data_cleaned_rem%>%
+#  filter(language=="japanese")%>%
+#  mutate(frequency=as.factor(frequency),
+#         Spreadsheet.Name=as.factor(`randomiser-ggy2`))
+```
+
+```{r}
+
+# Apply the function to each dataset
+model_data_c <- recode_and_reorder(model_data_c)
+model_data_j <- recode_and_reorder(model_data_j)
+model_data_m <- recode_and_reorder(model_data_m)
+
+# Check the levels (optional)
+levels(model_data_c$Spreadsheet.Name)
+levels(model_data_c$frequency)
+levels(model_data_j$Spreadsheet.Name)
+levels(model_data_j$frequency)
+levels(model_data_m$Spreadsheet.Name)
+levels(model_data_m$frequency)
+
+# Check the levels to
+# Run the comparison for each language and store the best models
+best_model_mandarin <- compare_models(model_data_c, "frequency", "Participant.Private.ID", "image", "correct", "Spreadsheet.Name")
+best_model_japanese <- compare_models(model_data_j, "frequency", "Participant.Private.ID", "image", "correct", "Spreadsheet.Name")
+best_model_minnan <- compare_models(model_data_m, "frequency", "Participant.Private.ID", "image", "correct", "Spreadsheet.Name")
+
+summary(best_model_mandarin)
+summary(best_model_japanese)
+summary(best_model_minnan)
+```
+
+```{r}
+# Function to extract coefficients and confidence intervals
+extract_coef_with_confint <- function(model, model_name) {
+  conf_int <- confint(model, method = "Wald", parm = "beta_")
+  conf_int_df <- as.data.frame(conf_int)
+  conf_int_df$Term <- rownames(conf_int_df)
+  
+  fixed_effects_df <- as.data.frame(fixef(model), row.names = NULL)
+  names(fixed_effects_df) <- c("Estimate")
+  fixed_effects_df$Term <- rownames(fixed_effects_df)
+  
+  coef_df <- merge(fixed_effects_df, conf_int_df, by = "Term")
+  coef_df$model <- model_name
+  
+  return(coef_df)
+}
+
+# Function to get predictions
+generate_predictions <- function(model_data, model, model_name) {
+  # Create new data for prediction
+  newData <- expand.grid(
+    Spreadsheet.Name = unique(model_data$Spreadsheet.Name),
+    frequency = unique(model_data$frequency)
+  )
+  
+  # Get predicted probabilities
+  newData$predictedProbability <- predict(model, newdata = newData, type = "response", re.form = NA)
+  
+  # Reverse the factor levels of Spreadsheet.Name
+  newData$Spreadsheet.Name <- fct_rev(newData$Spreadsheet.Name)
+  
+  # Add a column for the model name (language)
+  newData$model <- model_name
+  
+  return(newData)
+}
+
+
+# Extract coefficients and predictions for all best models
+coef_mandarin <- extract_coef_with_confint(best_model_mandarin, "Mandarin")
+coef_japanese <- extract_coef_with_confint(best_model_japanese, "Japanese")
+coef_minnan <- extract_coef_with_confint(best_model_minnan, "Minnan")
+coef_nixon <- data.frame(
+  Term = c("(Intercept)", "frequencyLow", "frequencyLow:Spreadsheet.NameDiscriminative", 
+           "Spreadsheet.NameDiscriminative"),
+  Estimate = c(NA, NA, NA, NA),
+  `2.5 %` = NA,
+  `97.5 %` = NA,
+  Model = "Nixon (2020)"
+)
+
+# Combine coefficient data into a single dataframe
+all_coef_df <- bind_rows(coef_mandarin, coef_japanese, coef_minnan)
+
+
+# Generate predictions for each best model
+predictions_mandarin <- generate_predictions(model_data_c, best_model_mandarin, "Mandarin")
+predictions_japanese <- generate_predictions(model_data_j, best_model_japanese, "Japanese")
+predictions_minnan <- generate_predictions(model_data_m, best_model_minnan, "Minnan")
+predictions_nixon <- data.frame(
+  Spreadsheet.Name = c("Discriminative", "Non-discriminative", "Discriminative", "Non-discriminative"),
+  frequency = c("Low", "Low", "High", "High"),
+  predictedProbability = c(.66, .375, .98, .99), # You can fill these in later
+  model = "Nixon (2020)-Minnan"
+)
+
+# Combine predictions into one dataframe
+all_predictions <- bind_rows(predictions_mandarin, predictions_japanese, predictions_minnan,predictions_nixon)
+```
+
+```{r}
+ggplot(all_predictions, aes(x = Spreadsheet.Name, y = predictedProbability, group = frequency, color = frequency)) +
+  geom_line(linewidth = 1) +  # Apply dodging to lines
+  geom_point(size = 3) +  # Apply dodging to points
+  labs(x = "", y = "Predicted Probability", color = "Frequency") +
+  facet_grid(~model) +  # Facet by model (language)
+  theme_minimal() +
+  scale_color_manual(values = c("#C41230", "#043673"))
+
+# Step 5: Plot model coefficients with each model having its own color
+ggplot(all_coef_df, aes(x = Term, y = Estimate, color = model)) +
+  geom_point(position = position_dodge(width = 0.2)) +
+  geom_errorbar(aes(ymin = `2.5 %`, ymax = `97.5 %`), width = 0.2,position = position_dodge(width = 0.2)) +
+  coord_flip() +
+  geom_hline(yintercept = 0,color="black")+
+  labs(title = "Model Coefficients with Confidence Intervals by Language",
+       x = "Term", y = "Coefficient Estimate") +
+  theme_minimal()
+
+```
+
+
+```{r}
+compare_models <- function(data, frequency_var, id_var, image_var, correct_var, spreadsheet_name_var) {
+  
+  # Set contrasts for categorical variables
+  contrasts(data[[frequency_var]]) <- contr.sum(length(unique(data[[frequency_var]])))
+  contrasts(data[[spreadsheet_name_var]]) <- contr.sum(length(unique(data[[spreadsheet_name_var]])))
+  
+  # Model 1: Complex
+  m1 <- glmer(as.formula(paste(correct_var, "~", frequency_var, "*", spreadsheet_name_var, "+ (", image_var, "|", id_var, ")")), 
+              family = binomial, data = data)
+  print(summary(m1))
+  
+  # Model 2: Reduced random effects
+  m2 <- glmer(as.formula(paste(correct_var, "~", frequency_var, "*", spreadsheet_name_var, "+ (", image_var, "||", id_var, ")")), 
+              family = binomial, data = data)
+  print(summary(m2))
+  
+  # Model 3: Simplified random effects
+  m3 <- glmer(as.formula(paste(correct_var, "~", spreadsheet_name_var, "*", frequency_var, "+ (1|", id_var, ")")), 
+              family = binomial, data = data)
+  m3_summary <- summary(m3)
+  print(m3_summary)
+  
+  # Print coefficients of model 3
+  print(m3_summary$coefficients)
+  
+  # Model 4: Simplest model (no random effects)
+  m4 <- glm(as.formula(paste(correct_var, "~", spreadsheet_name_var, "*", frequency_var)), 
+            family = binomial, data = data)
+  print(summary(m4))
+}
+
+# Example usage:
+data_m<-compare_models(data = model_data_m, 
+               frequency_var = "frequency", 
+               id_var = "Participant.Private.ID", 
+               image_var = "image", 
+               correct_var = "correct", 
+               spreadsheet_name_var = "Spreadsheet.Name")
+
+data_c<-compare_models(data = model_data_c, 
+               frequency_var = "frequency", 
+               id_var = "Participant.Private.ID", 
+               image_var = "image", 
+               correct_var = "correct", 
+               spreadsheet_name_var = "Spreadsheet.Name")
+data_j<-compare_models(data = model_data_c, 
+               frequency_var = "frequency", 
+               id_var = "Participant.Private.ID", 
+               image_var = "image", 
+               correct_var = "correct", 
+               spreadsheet_name_var = "Spreadsheet.Name")
+
+data_m
+```
+```{r}
+library(lme4)
+library(lmerTest)
+library(sjPlot)
+model_data_c<-test_data_cleaned%>%
+  filter(language=="mandarin")%>%
+  mutate(frequency=as.factor(frequency),
+         Spreadsheet.Name=as.factor(`randomiser-ggy2`))
+  #filter(Participant.Private.ID!="10594134")
+
+
+contrasts(model_data_c$Spreadsheet.Name)<-c(.5,-.5)
+contrasts(model_data_c$frequency)<-c(-.5,.5)
+contrasts(model_data_c$frequency)
+contrasts(model_data_c$Spreadsheet.Name)
+```
+
+```{r}
+m1_c<-glmer(correct~frequency*Spreadsheet.Name+(image|Participant.Private.ID),
+          family=binomial,data=model_data_c)
+summary(m1_c)
+m2_c<-glmer(correct~frequency*Spreadsheet.Name+(image||Participant.Private.ID),
+          family=binomial,data=model_data_c)
+summary(m2_c)
+
+m3_c<-glmer(correct~Spreadsheet.Name*frequency+(1|Participant.Private.ID),
+          family=binomial,data=model_data_c)
+sum<-summary(m3_c)
+sum
+sum$coefficients
+
+m4_c<-glm(correct~Spreadsheet.Name*frequency,
+          family=binomial,data=model_data_c)
+summary(m4_c)
+
+
+anova(m2_c,m3_c)
+
+anova(m3_c,m4_c)
+```
+
+```{r}
+library(lme4)
+library(lmerTest)
+library(sjPlot)
+model_data_j<-test_data_cleaned%>%
+  filter(language=="japanese")%>%
+  mutate(frequency=as.factor(frequency),
+         Spreadsheet.Name=as.factor(`randomiser-ggy2`))
+  #filter(Participant.Private.ID!="10594134")
+
+
+contrasts(model_data_j$Spreadsheet.Name)<-c(.5,-.5)
+contrasts(model_data_j$frequency)<-c(-.5,.5)
+contrasts(model_data_j$frequency)
+contrasts(model_data_j$Spreadsheet.Name)
+
+m1_j<-glmer(correct~frequency*Spreadsheet.Name+(image|Participant.Private.ID),
+          family=binomial,data=model_data_j)
+summary(m1_j)
+m2_j<-glmer(correct~frequency*Spreadsheet.Name+(image||Participant.Private.ID),
+          family=binomial,data=model_data_j)
+summary(m2_j)
+
+m3_j<-glmer(correct~Spreadsheet.Name*frequency+(1|Participant.Private.ID),
+          family=binomial,data=model_data_j)
+sum<-summary(m3_j)
+sum
+sum$coefficients
+
+m4_j<-glm(correct~Spreadsheet.Name*frequency,
+          family=binomial,data=model_data_j)
+summary(m4_j)
+
+
+anova(m2_j,m3_j)
+
+anova(m3_j,m4_j)
+```
+```{r}
+library(lme4)
+library(lmerTest)
+library(sjPlot)
+model_data_m<-test_data_cleaned%>%
+  filter(language=="minnan")%>%
+  mutate(frequency=as.factor(frequency),
+         Spreadsheet.Name=as.factor(`randomiser-ggy2`))
+  #filter(Participant.Private.ID!="10594134")
+
+
+contrasts(model_data_m$Spreadsheet.Name)<-c(.5,-.5)
+contrasts(model_data_m$frequency)<-c(-.5,.5)
+contrasts(model_data_m$frequency)
+contrasts(model_data_m$Spreadsheet.Name)
+```
+
+```{r}
+m1_m<-glmer(correct~frequency*Spreadsheet.Name+(image|Participant.Private.ID),
+          family=binomial,data=model_data_m)
+summary(m1_m)
+m2_m<-glmer(correct~frequency*Spreadsheet.Name+(image||Participant.Private.ID),
+          family=binomial,data=model_data_m)
+summary(m2_m)
+
+m3_m<-glmer(correct~Spreadsheet.Name*frequency+(1|Participant.Private.ID),
+          family=binomial,data=model_data_m)
+sum<-summary(m3_m)
+sum
+sum$coefficients
+
+m4_m<-glm(correct~Spreadsheet.Name*frequency,
+          family=binomial,data=model_data_m)
+summary(m4_m)
+
+
+anova(m2_m,m3_m)
+
+anova(m3_m,m4_m)
+```
+
+```{r}
+# Function to extract fixed effects and confidence intervals from a model
+extract_coef_with_confint <- function(model, model_name) {
+  # Extract confidence intervals
+  conf_int <- confint(model, method = "Wald", parm = "beta_")
+  conf_int_df <- as.data.frame(conf_int)
+  conf_int_df$Term <- rownames(conf_int_df)
+  
+  # Extract fixed effects
+  fixed_effects_df <- as.data.frame(fixef(model), row.names = NULL)
+  names(fixed_effects_df) <- c("Estimate")
+  fixed_effects_df$Term <- rownames(fixed_effects_df)
+  
+  # Merge fixed effects with confidence intervals
+  coef_df <- merge(fixed_effects_df, conf_int_df, by = "Term")
+  
+  # Add a column for the model name (language)
+  coef_df$model <- model_name
+  
+  return(coef_df)
+}
+
+# Run the models (assuming m3_c, m3_j, and m3_m are already fit)
+# Extract coefficients and confidence intervals for each model
+coef_df_c <- extract_coef_with_confint(m3_c, "Mandarin")
+coef_df_j <- extract_coef_with_confint(m3_j, "Japanese")
+coef_df_m <- extract_coef_with_confint(m3_m, "Minnan")
+
+# Combine the data for all models
+all_coef_df <- bind_rows(coef_df_c, coef_df_j, coef_df_m)
+
+# Rename columns for consistency
+names(all_coef_df)[3:4] <- c("Lower", "Upper")
+
+# Plot using ggplot2, faceted by model
+ggplot(all_coef_df, aes(x = Term, y = Estimate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = Lower, ymax = Upper), width = 0.2) +
+  coord_flip() +  # Makes it easier to read terms
+  facet_wrap(~model) +  # Facet by model (language)
+  labs(title = "Model Coefficients with Confidence Intervals by Language",
+       x = "Term", y = "Coefficient Estimate") +
+  theme_minimal()
+
+```
+
+```{r}
+library(forcats)
+# Function to generate predicted probabilities for each model
+generate_predictions <- function(model_data, model, model_name) {
+  # Create new data for prediction
+  newData <- expand.grid(
+    Spreadsheet.Name = unique(model_data$Spreadsheet.Name),
+    frequency = unique(model_data$frequency)
+  )
+  
+  # Get predicted probabilities
+  newData$predictedProbability <- predict(model, newdata = newData, type = "response", re.form = NA)
+  
+  # Reverse the factor levels of Spreadsheet.Name
+  newData$Spreadsheet.Name <- fct_rev(newData$Spreadsheet.Name)
+  
+  # Add a column for the model name (language)
+  newData$model <- model_name
+  
+  return(newData)
+}
+
+# Assuming the models and data for Mandarin (m3_c), Japanese (m3_j), and Minnan (m3_m) are already fit
+# Generate predictions for each model
+predictions_c <- generate_predictions(model_data_c, m3_c, "Mandarin")
+predictions_j <- generate_predictions(model_data_j, m3_j, "Japanese")
+predictions_m <- generate_predictions(model_data_m, m3_m, "Minnan")
+
+# Combine the prediction dataframes
+all_predictions <- bind_rows(predictions_c, predictions_j, predictions_m)
+
+# Plot with ggplot2
+ggplot(all_predictions, aes(x = Spreadsheet.Name, y = predictedProbability, group = frequency, color = frequency)) +
+  geom_line(linewidth=3) + 
+  geom_point(size=5) +
+  labs(x = "", y = "Predicted Probability", color = "Frequency") +
+  facet_wrap(~model) +  # Facet by model (language)
+  theme_minimal() +
+  scale_color_manual(values = c("#C41230", "#043673"))
+
+```
+
+```{r}
+
+test_data_agg2<-test_data%>%
+  mutate(frequency=as.factor(frequency),
+         Participant.Private.ID=as.factor(Participant.Private.ID),
+         Spreadsheet.Name=as.factor(Spreadsheet.Name))%>%
+  dplyr::group_by(Participant.Private.ID,Spreadsheet.Name,frequency,trial_rounded)%>%
+  dplyr::summarize(score=mean(correct))%>%
+  mutate(group=if_else(Spreadsheet.Name=="image_first",1,0))
+
+test_data_agg2%>%
+  ggplot(aes(x=trial_rounded,y=score,color=frequency,groups=trial_rounded))+
+  geom_point()+
+  facet_grid(.~Spreadsheet.Name)
+```
+
+```{r}
+combined_train_data<-train_data%>%
+  filter(str_detect(Response, "xlsx"))%>%
+  filter(!str_detect(Response, "https"))%>%
+  mutate(et_file=Response)%>%
+  mutate(language = Spreadsheet.Name,
+         order.pattern = `randomiser-ggy2`)%>%
+  mutate(test = sub("^(image|sound)_first_[0-9]+_.*", "\\1_first", language),
+         language = gsub("(image|sound)_first_[0-9]+_", "", language))%>%
+  select(!Response)%>%
+  select(Participant.Private.ID,Trial.Number,Spreadsheet.Row,Spreadsheet.Name,sound_stimuli,image,frequency,tone,segment,image_1,image_2,image_3,et_file,`randomiser-ggy2`,language,test)
+
+combined_et_data<-et_data%>%
+  mutate(Participant.Private.ID=Participant.Private.ID,
+         Spreadsheet.Row=Spreadsheet.Row)%>%
+  select(Participant.Private.ID,Spreadsheet.Row,screen_index,time_stamp,type,
+         face_conf,x_pred_normalised,y_pred_normalised,et_file)%>%
+  filter(type=="prediction")%>%
+  group_by(Participant.Private.ID,et_file)%>%
+  mutate(time=time_stamp-min(time_stamp))%>%
+  filter(face_conf>.5)
+```
+
+```{r}
+et<-combined_train_data%>%
+  left_join(combined_et_data)%>%
+  mutate(time_rounded = round(time / 200) * 200,
+         word=paste(segment,tone,sep="_"))
+
+#make compeitor and target images
+df<-combined_train_data%>%
+  select(image,segment,tone,frequency,language,test)%>%
+  unique()%>%
+  mutate(word = paste(segment, tone, sep = "_"),
+         target_image = image,
+         word_diff = ifelse(language != "mandarin", 
+                           sub(".*_(.*)", "\\1", word), 
+                           sub("(.*)_.*", "\\1", word)),
+         word_sim = ifelse(language != "mandarin", 
+                            sub("(.*)_.*", "\\1", word), 
+                            sub(".*_(.*)", "\\1", word))
+         )%>%
+  filter(language != "korean")
+
+competitor<-df%>%
+  select(image,word_sim,frequency,language,test)%>%
+  pivot_wider(names_from = frequency,names_prefix = "freq_",values_from = image)
+
+
+competitor1<-competitor%>%
+  mutate(target_image=freq_10,
+         distractor_image=freq_30)
+
+competitor2<-competitor%>%
+  mutate(target_image=freq_30,
+         distractor_image=freq_10)
+
+key_competitors<-rbind(competitor1,competitor2)%>%
+  select(!c(freq_10,freq_30))%>%
+  unique()
+
+competitors<-key_competitors$target_image%>%unique()
+
+
+comp_images<-df%>%
+  left_join(key_competitors)%>%
+  mutate(nonce_image = case_when(
+    !target_image %in% competitors[1] & !distractor_image %in% competitors[1] ~ competitors[1],
+    !target_image %in% competitors[2] & !distractor_image %in% competitors[2] ~ competitors[2],
+    TRUE ~ competitors[3]
+  ))%>%
+  select(word:nonce_image)%>%
+  unique()
+
+et<-et%>%left_join(comp_images)
+```
+
+```{r}
+et_cats <- et %>%
+  mutate(
+    # Adjust points relative to the new center at (0.5, 0.5)
+    adjusted_x = x_pred_normalised - 0.5,
+    adjusted_y = y_pred_normalised - 0.5,
+    # Calculate angle in radians from the adjusted points
+    angle = atan2(adjusted_y, adjusted_x),
+    # Adjust angle to rotate the frame of reference so that the positive y-axis is the starting
+    angle = angle - pi/2,
+    # Normalize the angle to be within the [0, 2*pi) range
+    angle = ifelse(angle < 0, angle + 2*pi, angle),
+    # Convert angle to degrees for easier interpretation
+    angle_deg = angle * 180 / pi,
+    # Categorize based on the adjusted angle
+    sector = case_when(
+      angle_deg < 120 ~ "bluesquare.png",
+      angle_deg >= 120 & angle_deg < 240 ~ "yellowtriangle.png",
+      TRUE ~ "redcircle.png" ),
+    # Calculate Euclidean distance from the origin (0.5, 0.5)
+    distance_from_origin = sqrt(adjusted_x^2 + adjusted_y^2),
+    target_looks = if_else(sector == target_image, 1, 0),
+    distractor_looks = if_else(sector == distractor_image, 1, 0),
+    nonce_looks = if_else(sector == nonce_image, 1, 0),
+    distance_center=if_else(distance_from_origin<.1,1,0)
+  )%>%
+  separate(Spreadsheet.Name, into = c("type", "order", "number"), sep = "_")%>%
+  mutate(order.pattern=`randomiser-ggy2`)%>%
+  filter(x_pred_normalised>0&x_pred_normalised<1&y_pred_normalised>0&y_pred_normalised<1)
+
+et_cats%>%ggplot(aes(x=x_pred_normalised,y=y_pred_normalised,color=sector))+
+  geom_point()+
+  facet_grid(order.pattern~language)
+
+et_cats%>%ggplot(aes(x=x_pred_normalised,y=y_pred_normalised,color=sector))+
+  geom_point()+
+  facet_wrap(Participant.Private.ID~language)
+
+et_cats_agg_samp<-et_cats%>%
+  group_by(language,Participant.Private.ID,type)%>%
+  count()
+
+et_cats_agg_samp%>%ggplot(aes(x=interaction(language,type),y=n,color=type))+
+  geom_jitter()+
+  geom_violin(alpha=.4)+
+  geom_text(aes(label = Participant.Private.ID), 
+            position = position_jitter(width = 0.2, height = 0.5),
+            vjust = -0.5, 
+            size = 3)
+
+et_cats_agg_samp<-et_cats%>%
+  group_by(language,Participant.Private.ID,type)%>%
+  count()%>%
+  filter(n>1000)
+
+et_cats_agg_samp%>%ggplot(aes(x=interaction(language,type),y=n,color=type))+
+  geom_jitter()+
+  geom_violin(alpha=.4)+
+  geom_text(aes(label = Participant.Private.ID), 
+            position = position_jitter(width = 0.2, height = 0.5),
+            vjust = -0.5, 
+            size = 3)
+```
+
+```{r}
+
+et_agg<-et_cats%>%
+  filter(Participant.Private.ID %in% et_cats_agg_samp$Participant.Private.ID)%>%
+  filter(Participant.Private.ID %in% keep_attention_agg$Participant.Private.ID) %>%
+  filter(Participant.Private.ID!="11649153")%>%
+  filter(distance_center==0)%>%
+  group_by(type,time_rounded,frequency,distance_center,language)%>%
+  summarize(looks_target=mean(target_looks),
+            looks_competitor=mean(distractor_looks),
+            looks_nonce=mean(nonce_looks))%>%
+  #mutate(time_rounded=if_else(type=="image",time_rounded+1700,time_rounded))#1200
+  filter(time_rounded<5000)%>%
+  filter(time_rounded>1500)%>%
+  #filter(time_rounded<7000)%>%
+  #mutate(time_rounded-200)%>%
+  pivot_longer(col=c(looks_target:looks_nonce),names_to="looks",values_to = "values")
+
+
+et_agg %>%
+  ggplot(aes(y = values, 
+             x = time_rounded, 
+             color = interaction(looks),
+             fill = as.factor(looks))) +
+  geom_point()+
+  #geom_line(aes(group = interaction(looks, frequency))) +
+  geom_smooth()+
+  facet_grid(frequency~interaction(type))+
+  theme_minimal()+
+  facet_grid(interaction(type,frequency)~language)
+
+
+et_agg<-et_cats%>%
+  filter(Participant.Private.ID %in% et_cats_agg_samp$Participant.Private.ID)%>%
+  filter(Participant.Private.ID %in% keep_attention_agg$Participant.Private.ID) %>%
+  filter(Participant.Private.ID!="11649153")%>%
+  filter(distance_center==0)%>%
+  group_by(type,time_rounded,frequency,distance_center,language,Participant.Private.ID)%>%
+  summarize(looks_target=mean(target_looks),
+            looks_competitor=mean(distractor_looks),
+            looks_nonce=mean(nonce_looks))%>%
+  #mutate(time_rounded=if_else(type=="image",time_rounded+1700,time_rounded))#1200
+  filter(time_rounded<5500)%>%
+  filter(time_rounded>1500)%>%
+  #filter(time_rounded<7000)%>%
+  #mutate(time_rounded-200)%>%
+  pivot_longer(col=c(looks_target:looks_nonce),names_to="looks",values_to = "values")
+
+
+et_agg %>%
+  ggplot(aes(y = values, 
+             x = time_rounded, 
+             color = interaction(looks),
+             fill = as.factor(looks))) +
+  geom_line(aes(group=interaction(looks,Participant.Private.ID)))+
+  facet_grid(frequency~interaction(type))+
+  theme_minimal()+
+  facet_grid(interaction(type,frequency)~language)
+
+
+length(unique(et_cats$Participant.Private.ID))
+```
+
+
+
+```{r}
+et_agg<-et_cats%>%
+  filter(Participant.Private.ID!="11649153")%>%
+  filter(distance_center==0)%>%
+  group_by(type,time_rounded,frequency,distance_center,language)%>%
+  summarize(looks_target=mean(target_looks),
+            looks_competitor=mean(distractor_looks),
+            looks_nonce=mean(nonce_looks))%>%
+  mutate(time_rounded=if_else(type=="image",time_rounded-900,time_rounded))%>%#1200
+  filter(time_rounded>1600)%>%
+  filter(time_rounded<5500)%>%
+  #mutate(time_rounded-200)%>%
+  pivot_longer(col=c(looks_target:looks_competitor),names_to="looks",values_to = "values")
+
+
+
+et_agg %>%
+  ggplot(aes(y = values, x = time_rounded, color = interaction(looks),fill = as.factor(looks))) +
+  geom_point()+
+  #geom_line(aes(group = interaction(looks, frequency))) +
+  geom_smooth()+
+  facet_grid(frequency~interaction(type))+
+  theme_minimal()+
+  facet_grid(interaction(type,frequency)~language)
+
+et_agg %>%
+  ggplot(aes(y = values, x = time_rounded, color = interaction(frequency),fill = as.factor(frequency))) +
+  geom_point()+
+  #geom_line(aes(group = interaction(looks, frequency))) +
+  geom_smooth()+
+  facet_grid(frequency~interaction(type))+
+  theme_minimal()+
+  facet_grid(interaction(type,looks)~language)
+
+et_agg<-et_cats%>%
+  filter(Participant.Private.ID!="11649153")%>%
+  filter(distance_center==0)%>%
+  group_by(type,time_rounded,frequency,distance_center,language,Participant.Private.ID)%>%
+  summarize(looks_target=mean(target_looks),
+            looks_competitor=mean(distractor_looks),
+            looks_nonce=mean(nonce_looks))%>%
+  #mutate(time_rounded=if_else(type=="image",time_rounded-900,time_rounded))%>%#1200
+  filter(time_rounded>1600)%>%
+  filter(time_rounded<4500)%>%
+  #mutate(time_rounded-200)%>%
+  pivot_longer(col=c(looks_target:looks_competitor),names_to="looks",values_to = "values")
+
+
+
+et_agg %>%
+  ggplot(aes(y = values, x = time_rounded, color = interaction(looks),fill = as.factor(looks)))+
+  #geom_line(aes(group = interaction(looks, frequency))) +
+  geom_line(aes(group=interaction(looks,Participant.Private.ID)))+
+  facet_grid(frequency~interaction(type))+
+  theme_minimal()+
+  facet_grid(interaction(type,frequency)~language)
+
+
+```
+
+```{r}
+et_agg<-et_cats%>%
+  filter(distance_center==0)%>%
+  group_by(type,time_rounded,frequency,distance_center,number,language)%>%
+  summarize(looks_target=mean(target_looks),
+            looks_competitor=mean(distractor_looks),
+            looks_nonce=mean(nonce_looks))%>%
+  mutate(time_rounded=if_else(type=="image",time_rounded,time_rounded))%>%#1200
+  #mutate(time_rounded+200)%>%
+  filter(time_rounded>1500)%>%
+  filter(time_rounded<5000)%>%
+  pivot_longer(col=c(looks_target:looks_nonce),names_to="looks",values_to = "values")
+
+
+
+et_agg %>%
+  ggplot(aes(y = values, x = time_rounded, color = interaction(looks),fill = as.factor(looks))) +
+  geom_point()+
+  #geom_line(aes(group = interaction(looks, frequency))) +
+  geom_smooth()+
+  facet_grid(interaction(frequency,language)~interaction(number,type))+
+  scale_y_continuous(limits = c(-.3, 1))+
+  theme_minimal()+
+  scale_x_continuous(breaks = seq(from = min(et_agg$time_rounded, na.rm = TRUE), 
+                                  to = max(et_agg$time_rounded, na.rm = TRUE), 
+                                  by = 1000)) 
+
+
+```
+```{r}
+
+et_agg_comp<-et_cats%>%
+  filter(distance_center==0)%>%
+  group_by(type,time_rounded,frequency,distance_center)%>%
+  summarize(looks_target=mean(target_looks),
+            looks_competitor=mean(distractor_looks),
+            looks_nonce=mean(nonce_looks))%>%
+  mutate(time_rounded=if_else(type=="image",time_rounded+2000,time_rounded))%>%#1200
+  #mutate(time_rounded+200)%>%
+  filter(time_rounded>1500)%>%
+  filter(time_rounded<5000)%>%
+  pivot_longer(col=c(looks_target:looks_nonce),names_to="looks",values_to = "values")
+
+
+et_agg_comp%>%
+  ggplot(aes(y = values, x = time_rounded, color = interaction(looks),fill = as.factor(looks))) +
+  geom_point()+
+  #geom_line(aes(group = interaction(looks, frequency))) +
+  geom_smooth()+
+  facet_grid(frequency~interaction(type))+
+  theme_minimal()
+
+
+```
+
+```{r}
+et2<-combined_train_data%>%
+  left_join(combined_et_data)%>%
+  mutate(time=if_else(Spreadsheet.Name=="image_first_1",time+2000,time))%>%
+  filter(time>2500)%>%
+  filter(time<5000)%>%
+  mutate(word=paste(segment,tone,sep="_"))
+et2<-et2%>%left_join(comp_images)
+
+et_cats2 <- et2 %>%
+  mutate(
+    # Adjust points relative to the new center at (0.5, 0.5)
+    adjusted_x = x_pred_normalised - 0.5,
+    adjusted_y = y_pred_normalised - 0.5,
+    # Calculate angle in radians from the adjusted points
+    angle = atan2(adjusted_y, adjusted_x),
+    # Adjust angle to rotate the frame of reference so that the positive y-axis is the starting point
+    angle = angle - pi/2,
+    # Normalize the angle to be within the [0, 2*pi) range
+    angle = ifelse(angle < 0, angle + 2*pi, angle),
+    # Convert angle to degrees for easier interpretation
+    angle_deg = angle * 180 / pi,
+    # Categorize based on the adjusted angle
+    sector = case_when(
+      angle_deg < 120 ~ "bluesquare.png",
+      angle_deg >= 120 & angle_deg < 240 ~ "yellowtriangle.png",
+      TRUE ~ "redcircle.png" ),
+    # Calculate Euclidean distance from the origin (0.5, 0.5)
+    distance_from_origin = sqrt(adjusted_x^2 + adjusted_y^2),
+    target_looks = if_else(sector == target_image, 1, 0),
+    distractor_looks = if_else(sector == distractor_image, 1, 0),
+    nonce_looks = if_else(sector == nonce_image, 1, 0),
+    distance_center=if_else(distance_from_origin<.1,1,0)
+  )%>%
+  separate(Spreadsheet.Name, into = c("type", "order", "number"), sep = "_")
+
+
+
+et_agg_comp2<-et_cats2%>%
+  filter(distance_center==0)%>%
+  group_by(type,frequency,Participant.Private.ID)%>%
+  summarize(looks_target=mean(target_looks),
+            looks_competitor=mean(distractor_looks),
+            looks_nonce=mean(nonce_looks))%>%
+  pivot_longer(col=c(looks_target:looks_nonce),names_to="looks",values_to = "values")
+
+
+et_agg_comp2%>%
+  ggplot(aes(y = values, x = as.factor(looks), color = interaction(looks),fill = as.factor(looks))) +
+  geom_point()+
+  geom_violin()+
+  #geom_line(aes(group = interaction(looks, frequency))) +
+  facet_grid(frequency~interaction(type))+
+  scale_y_continuous(limits = c(-.3, 1))+
+  theme_minimal()
+
+et_agg_comp2<-et_cats2%>%
+  filter(distance_center==0)%>%
+  group_by(type,frequency,Participant.Private.ID)%>%
+  summarize(looks_target=mean(target_looks),
+            looks_competitor=mean(distractor_looks),
+            looks_nonce=mean(nonce_looks))%>%
+  mutate(suprisal=looks_competitor-looks_target)
+
+et_agg_comp2%>%
+  ggplot(aes(y = suprisal, x = interaction(type,frequency), color =factor(frequency))) +
+  geom_violin(width=.2)+
+  geom_boxplot(width=.1)+
+  geom_jitter()+
+  scale_y_continuous(limits = c(-.3, 1))+
+  theme_minimal()+
+  scale_y_continuous(breaks = seq(from = -.5, na.rm = TRUE, 
+                                  to = .5, 
+                                  by = .2))+
+  scale_color_manual(values = c("#C41230", "#043673"))
+
+```
+```{r}
+test_data_agg$frequency<-as.factor(test_data_agg$frequency)
+et_agg_comp2$frequency<-as.factor(et_agg_comp2$frequency)
+test_data_agg$Participant.Private.ID<-as.factor(test_data_agg$Participant.Private.ID)
+et_agg_comp2$Participant.Private.ID<-as.factor(et_agg_comp2$Participant.Private.ID)
+
+test_data_agg_new<-test_data_agg%>%
+  mutate(type = if_else(Spreadsheet.Name=="sound_first","sound","image"),
+         frequency = if_else(frequency==1,10,30))
+
+test_data_agg_new$frequency<-as.factor(test_data_agg_new$frequency)
+suprisal_acc<-et_agg_comp2%>%
+  left_join(test_data_agg_new)
+
+suprisal_acc<-suprisal_acc%>%
+  mutate(score_scaled = scale(score)[,1],
+         suprisal_scaled = scale(suprisal)[,1])%>%
+  na.omit()
+
+suprisal_acc%>%ggplot(aes(x=suprisal,y=score,color=type))+
+  geom_point()+
+  facet_grid(.~frequency)+
+  theme_minimal()
+```
+
+```{r}
+suprisal_acc$type<-as.factor(suprisal_acc$type)
+
+suprisal_acc_mod<-suprisal_acc%>%
+  filter(frequency==10,type=="sound")
+contrasts(suprisal_acc$frequency)<-c(-.5,.5)
+contrasts(suprisal_acc$type)<-c(-.5,.5)
+acc_mod<-lm(score~type*frequency,data=suprisal_acc)
+
+summary(acc_mod)
+
+m3<-glmer(correct~Spreadsheet.Name*frequency+(1|Participant.Private.ID),
+          family=binomial,data=model_data)
+
+```
+
+
+
+
+```{r}
+et_mod<-et_cats%>%
+  filter(distance_center==0)%>%
+  group_by(type,time_rounded,frequency,distance_center,number)%>%
+  summarize(looks_target=mean(target_looks),
+            looks_competitor=mean(distractor_looks),
+            looks_nonce=mean(nonce_looks))%>%
+  mutate(time_rounded=if_else(type=="image",time_rounded,time_rounded))%>%#1200
+  #mutate(time_rounded+200)%>%
+  #filter(time_rounded>1500)%>%
+  filter(time_rounded<5000)%>%
+  pivot_longer(col=c(looks_target:looks_competitor),names_to="looks",values_to = "values")
+
+et_mod$type<-as.factor(et_mod$type)
+et_mod$frequency<-as.factor(et_mod$frequency)
+contrasts(et_mod$frequency)<-c(.5,-.5)
+et_mod$number<-as.factor(et_mod$number)
+
+library(lmerTest)
+mod_data<-lm(values~time_rounded*looks*frequency*number*type,data=et_mod,family=gaussian)
+
+
+summary(mod_data)
+
+library(sjPlot)
+
+
+# Assuming mod_data is your fitted model
+plot_model(mod_data, type = "diag")
+plot_model(mod_data, type = "pred", terms = "time_rounded")
+
+plot_model(mod_data, type = "eff", terms = c("time_rounded", "looks"))
+
+
+et_mod$looks <- as.factor(et_mod$looks)
+et_mod$frequency <- as.factor(et_mod$frequency)
+et_mod$number <- as.factor(et_mod$number)
+
+
+
+pred_data <- expand.grid(
+  time_rounded = seq(from = min(et_mod$time_rounded, na.rm = TRUE), 
+                     to = max(et_mod$time_rounded, na.rm = TRUE), length.out = 100),
+  looks = levels(et_mod$looks),
+  frequency = levels(et_mod$frequency),
+  number=levels(et_mod$number),
+  type=levels(et_mod$type)
+)
+
+# Add predicted values to the prediction data frame
+pred_data$predicted_values <- predict(mod_data, newdata = pred_data)
+
+
+ggplot(pred_data, aes(x = time_rounded, y = predicted_values, color = looks)) +
+  geom_line() +
+  facet_grid(number~ interaction(frequency,type), scales = "free_y") +
+  labs(title = "Predicted Interaction Effect of Time Rounded and Looks\nacross Frequency Levels",
+       y = "Predicted Values",
+       x = "Time Rounded") +
+  theme_minimal()
+```
+
+```{r}
+
+et<-combined_train_data%>%
+  left_join(combined_et_data)%>%
+  separate(Spreadsheet.Name, into = c("type", "order", "number"), sep = "_")%>%
+  #filter(time_elapsed<5000)%>%
+  mutate(time_elapsed=case_when(type=="sound"~time_elapsed-1500,
+                                type=="image"~time_elapsed-3700))%>%
+  mutate(time_rounded = round(time_elapsed / 100) * 100)
+
+et_cats <- et %>%
+  mutate(
+    # Adjust points relative to the new center at (0.5, 0.5)
+    adjusted_x = x_pred_normalised - 0.5,
+    adjusted_y = y_pred_normalised - 0.5,
+    # Calculate angle in radians from the adjusted points
+    angle = atan2(adjusted_y, adjusted_x),
+    # Adjust angle to rotate the frame of reference so that the positive y-axis is the starting point
+    angle = angle - pi/2,
+    # Normalize the angle to be within the [0, 2*pi) range
+    angle = ifelse(angle < 0, angle + 2*pi, angle),
+    # Convert angle to degrees for easier interpretation
+    angle_deg = angle * 180 / pi,
+    # Categorize based on the adjusted angle
+    sector = case_when(
+      angle_deg < 120 ~ "redcircle.png",
+      angle_deg >= 120 & angle_deg < 240 ~ "bluesquare.png",
+      TRUE ~ "yellowtriangle.png" ),
+    # Calculate Euclidean distance from the origin (0.5, 0.5)
+    distance_from_origin = sqrt(adjusted_x^2 + adjusted_y^2),
+    # Determine if the point is within the cutoff distance
+    target_looks = if_else(sector == image, 0, 1),
+    dist1_looks = if_else(sector != image, 1, 0)
+  )%>%
+  mutate(target_looks=if_else(sector==image,1,0),
+         dist1_looks=if_else(sector!=image,1,0),
+         distance_center=if_else(distance_from_origin<.3,1,0))
+
+et_cats%>%ggplot(aes(x=adjusted_x, y=adjusted_y,color=as.factor(distance_center)))+
+  geom_point()
+  facet_grid(Spreadsheet.Name~time_rounded)
+
+et_agg<-et_cats%>%
+  group_by(type,number,time_rounded,frequency)%>%
+  mutate()%>%
+  summarize(looks_target=mean(distance_center))
+
+et_agg%>%ggplot(aes(y=looks_target,x=time_rounded,color=type))+
+  geom_jitter()+
+  geom_smooth()+
+  facet_wrap(number~frequency)
+
+et_agg<-et_cats%>%
+  filter(distance_center==0)%>%
+  group_by(type,time_rounded)%>%
+  mutate()%>%
+  summarize(looks_target=mean(target_looks))
+
+
+et_agg%>%ggplot(aes(y=looks_target,x=time_rounded,color=type))+
+  geom_jitter()+
+  geom_smooth()
+
+
+```
+
+
+```{r}
+
+library(readxl)
+et_files_6<-list.files("../pilot_data/data_exp_168927-v16/uploads",full.names = TRUE, pattern = "pqcl|b89a|w1xm|osi6")
+
+all_et_files<-et_files_6
+
+list_of_data_frames <- lapply(all_et_files, function(file) {
+  et_data <- read_excel(file)
+  et_data$et_file <- basename(file)
+  return(et_data)
+})
+
+# Combine all data frames into one
+combined_et_data <- do.call(rbind, list_of_data_frames)
+combined_et_data<-combined_et_data%>%
+  mutate(Participant.Private.ID=participant_id,
+         Spreadsheet.Row=spreadsheet_row)%>%
+  select(Participant.Private.ID,Spreadsheet.Row,time_elapsed,type,
+         face_conf,x_pred_normalised,y_pred_normalised,)%>%
+  filter(type=="prediction")
+
+
+#train dat
+et_train_6<-list.files("../pilot_data/data_exp_168927-v16/",full.names = TRUE, pattern = "pqcl|b89a|w1xm|osi6")
+
+all_train_data<-c(et_train_6)
+
+combined_train_data <- do.call(rbind, lapply(all_train_data, function(file) {
+  train_data <- read_csv(file)
+  # Optionally, add a source file column
+  train_data$source_file <- basename(file)
+  return(train_data)
+}))
+
+colnames(combined_train_data) <- gsub(" ", ".", colnames(combined_train_data))
+
+combined_train_data<-combined_train_data%>%
+  select(Participant.Private.ID,Trial.Number,Spreadsheet.Row,Spreadsheet.Name,sound_stimuli,image,frequency,tone,segment,Response,image_1,image_2,image_3,Response)%>%
+  filter(str_detect(Response, "xlsx"))%>%
+  filter(!str_detect(Response, "https"))%>%
+  mutate(et_file=Response)
+
+
+combined_train_data
+et<-combined_train_data%>%
+  left_join(combined_et_data)%>%
+  #filter(time_elapsed<5000)%>%
+  mutate(time_rounded = round(time_elapsed / 100) * 100)
+
+et%>%ggplot(aes(x=x_pred_normalised, y=y_pred_normalised,color=sound_stimuli))+
+  geom_point()+
+  facet_grid(Spreadsheet.Name~time_rounded)
+
+et_cats <- et %>%
+  mutate(
+    # Adjust points relative to the new center at (0.5, 0.5)
+    adjusted_x = x_pred_normalised - 0.5,
+    adjusted_y = y_pred_normalised - 0.5,
+    # Calculate angle in radians from the adjusted points
+    angle = atan2(adjusted_y, adjusted_x),
+    # Adjust angle to rotate the frame of reference so that the positive y-axis is the starting point
+    angle = angle - pi/2,
+    # Normalize the angle to be within the [0, 2*pi) range
+    angle = ifelse(angle < 0, angle + 2*pi, angle),
+    # Convert angle to degrees for easier interpretation
+    angle_deg = angle * 180 / pi,
+    # Categorize based on the adjusted angle
+    sector = case_when(
+      angle_deg < 120 ~ "redcircle.png",
+      angle_deg >= 120 & angle_deg < 240 ~ "bluesquare.png",
+      TRUE ~ "yellowtriangle.png" ),
+    # Calculate Euclidean distance from the origin (0.5, 0.5)
+    distance_from_origin = sqrt(adjusted_x^2 + adjusted_y^2),
+    # Determine if the point is within the cutoff distance
+    within_cutoff = distance_from_origin <= sqrt((0.6 - 0.5)^2 + (0.6 - 0.5)^2),
+    # Additional calculations as per your request
+    target_looks = if_else(sector == image, 0, 1),
+    dist1_looks = if_else(sector != image, 1, 0)
+  )%>%
+  mutate(target_looks=if_else(sector==image,1,0),
+         dist1_looks=if_else(sector!=image,1,0),
+         distance_center=if_else(distance_from_origin<.3,1,0))
+
+
+et_cats%>%ggplot(aes(x=adjusted_x, y=adjusted_y,color=as.factor(distance_center)))+
+  geom_point()
+  facet_grid(Spreadsheet.Name~time_rounded)
+
+
+et_agg<-et_cats%>%
+  group_by(Spreadsheet.Name,time_rounded)%>%
+  summarize(looks_target=mean(distance_center))%>%
+  #filter(time_rounded>1200)%>%
+  #filter(time_rounded<3000)%>%
+  #mutate(time_rounded-200)%>%
+  separate(Spreadsheet.Name, into = c("type", "order", "number"), sep = "_")
+
+et_agg%>%ggplot(aes(y=looks_target,x=time_rounded,color=type))+
+  geom_jitter()+
+  geom_smooth()+
+  facet_wrap(number~.)
+  
+et_agg<-et_cats%>%
+  group_by(Spreadsheet.Name,time_rounded)%>%
+  summarize(looks_target=mean(target_looks))%>%
+  #filter(time_rounded>1200)%>%
+  #filter(time_rounded<3000)%>%
+  #mutate(time_rounded-200)%>%
+  separate(Spreadsheet.Name, into = c("type", "order", "number"), sep = "_")
+
+et_agg%>%ggplot(aes(y=looks_target,x=time_rounded,color=type))+
+  geom_jitter()+
+  geom_smooth()+
+  facet_wrap(number~.)
+
+
+```
