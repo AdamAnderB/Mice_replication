@@ -1,0 +1,191 @@
+---
+title: "power_analysis"
+author: "Adam A. Bramlett"
+date: "2024-04-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(lme4) # we need lme4 so we can do test-runs of mixed effects analyses. 
+require(tidyverse) # in case tidyverse needs to be re-loaded
+```
+
+```{r}
+simulate_data <- function(n_subjects, items_per_condition, trials_per_item, blocks, 
+                          p_high, p_low, bonus_sound_first) {
+    subjects <- rep(1:n_subjects, each = items_per_condition * trials_per_item * blocks * 2)
+    condition <- rep(rep(c("low_frequency", "high_frequency"), each = trials_per_item * items_per_condition), times = blocks * n_subjects)
+    block <- rep(rep(1:blocks, each = trials_per_item * items_per_condition * 2), times = n_subjects)
+    item <- rep(rep(1:(items_per_condition * 2), each = trials_per_item), times = blocks * n_subjects)
+    
+    # Assigning block conditions (Image first or Sound first)
+    block_condition <- rep(sample(c("image_first", "sound_first"), n_subjects, replace = TRUE), each = items_per_condition * trials_per_item * blocks * 2)
+    
+    # Adding subject-specific random effects
+    subject_effect_high <- rnorm(n_subjects, 0, 0.04)  # Normal distribution for high frequency
+    subject_effect_low <- rnorm(n_subjects, 0, .4)   # Normal distribution for low frequency
+
+    # Adjusting probabilities for Sound first condition and including subject-specific noise
+    adjusted_p_high <- pmin(pmax(0, ifelse(block_condition == "sound_first", 
+                                p_high + bonus_sound_first + subject_effect_high[subjects], 
+                                p_high + subject_effect_high[subjects])), 1)
+    adjusted_p_low <- pmin(pmax(0, ifelse(block_condition == "sound_first", 
+                               p_low + bonus_sound_first + subject_effect_low[subjects], 
+                               p_low + subject_effect_low[subjects])), 1)
+
+    # Simulating correct/incorrect outcomes based on adjusted probabilities
+    outcome <- ifelse(condition == "high_frequency", 
+                      rbinom(length(condition), 1, adjusted_p_high), 
+                      rbinom(length(condition), 1, adjusted_p_low))
+    
+    # Creating the final data frame
+    dat <- data.frame(subject = subjects, condition = condition, block = block, 
+                      item = item, block_condition = block_condition, outcome = outcome)
+    dat<-dat%>%
+      mutate(condition=as.factor(condition),
+             block=as.factor(block))
+    
+    return(dat)
+}
+
+```
+
+```{r}
+
+# Example usage
+set.seed(08)
+dat <- simulate_data(n_subjects = 10, items_per_condition = 4, trials_per_item = 8, 
+                     blocks = 1, p_high = 0.95, p_low = 0.4, bonus_sound_first = 0.001)
+head(dat, n = 60)
+agg_dat <- dat %>%
+  group_by(block_condition, condition,subject) %>%
+  summarize(score = mean(outcome), .groups = 'drop')
+
+ggplot(agg_dat, aes(x = block_condition, y = score, color = condition)) +
+  geom_jitter(width = 0.1, height = 0.02) +
+  geom_point(stat = "identity") +
+  labs(title = "Average Scores by Condition and Block Condition",
+       x = "Block Condition",
+       y = "Average Score")
+```
+
+```{r}
+#install.packages("lme4", type = "source")
+# a function for running a mixed-model and extracting coverage, theta_bias, sigma_bias, and p-values. 
+run_analysis <- function(data) {
+    # Fit null and alternative model
+    m0 <- glmer(outcome ~ 1 + (1|subject), data=data,family = "binomial") # null model
+    m1 <- glmer(outcome ~ condition * block_condition + (1 |subject), data=data,family = "binomial")
+
+    # Extract estimate and standard error for the interaction term
+    est <- fixef(m1)[4]
+    se <- summary(m1)$coef[, 2, drop = FALSE][4]
+    # BIC calculation to compare models
+    m_bic <- BIC(m0, m1)$BIC
+    statistic <- diff(m_bic)
+    return(c(est, se, statistic))
+}
+
+m1 <- glmer(outcome ~ condition * block_condition + (1 |subject), data=dat, ,family = "binomial")
+summary(m1)
+#summary(m1)$coef
+#a<-run_analysis(dat)
+#a
+#a[3]
+```
+
+
+```{r}
+repeat_analysis <- function(n_simulations, n_subjects, items_per_condition, trials_per_item, blocks, p_high, p_low, bonus_sound_first) {
+    simouts <- matrix(rep(NA, 3 * n_simulations), nrow = n_simulations)
+    error_count <- 0 # Track number of errors
+
+    # Loop for repeating the simulation
+    for (i in 1:n_simulations) {
+        tryCatch({
+            data <- simulate_data(n_subjects, items_per_condition, trials_per_item, blocks, p_high, p_low, bonus_sound_first)
+            analysis_results <- run_analysis(data)
+            simouts[i,] <- analysis_results # Save the analysis outputs for this simulation.
+        }, error = function(e) {
+            error_count <- error_count + 1
+            warning(paste("Error in simulation", i, ":", e$message))
+        })
+    }
+
+    if (error_count == n_simulations) {
+        stop("All simulations failed. Check model and data simulation parameters.")
+    }
+
+    # Calculate statistics only for successful simulations
+    valid_simouts <- simouts[complete.cases(simouts), ]
+    power <- mean(valid_simouts[,3] <= -20) # -20 as a significant threshold
+    estimated_slope <- mean(valid_simouts[,1])
+    theta_bias <- (estimated_slope - bonus_sound_first) / bonus_sound_first
+    sigma_bias <- (mean(valid_simouts[,2]) - sd(valid_simouts[,1])) / sd(valid_simouts[,1])
+
+    return(list(power = power, theta_bias = theta_bias, sigma_bias = sigma_bias))
+}
+
+
+#repeat_analysis(n_simulations=2, n_subjects = 20, items_per_condition = 3, trials_per_item = 12, 
+#                     blocks = 2, p_high = 0.9, p_low = 0.4, bonus_sound_first = 0.05)
+```
+
+
+```{r}
+#sample sizes with set items
+dat <- expand.grid(n_subjects = c(8,10,12,14,16,18,20), items_per_condition = 1, trials_per_item = c(8,10,12), 
+                     blocks = 1, p_high = 0.95, p_low = 0.4, bonus_sound_first = 0.001)
+dat$id <- 1:nrow(dat)
+# then use tidyverse functions to run the analysis for each sample size (takes ~30-60 minutes)
+results <- dat %>%
+    nest(parameters :=  c(n_subjects, trials_per_item)) %>%
+    mutate(
+        analysis_results = map(parameters, ~repeat_analysis(n_simulations=50, 
+                                                            n_subjects = .$n_subjects, 
+                                                            items_per_condition = 1, 
+                                                            trials_per_item = .$trials_per_item,
+                                                            blocks = 1, 
+                                                            p_high = 0.95, 
+                                                            p_low = 0.7, 
+                                                            bonus_sound_first = 0.001)),
+        power = map_dbl(analysis_results, ~.x$power),
+        theta_bias = map_dbl(analysis_results, ~.x$theta_bias),
+        sigma_bias = map_dbl(analysis_results, ~.x$sigma_bias)
+    ) %>%
+    select(-analysis_results) %>% 
+    unnest(c(parameters, power, theta_bias, sigma_bias))
+results
+```
+
+```{r}
+results
+options(repr.plot.width=10, repr.plot.height=8)
+ggplot(results, aes(n_subjects*2, power, color=as.factor(trials_per_item), group=trials_per_item)) +
+    geom_point() +
+    geom_line() +
+    geom_hline(yintercept = 0.8) + # again, thresholds for acceptable power
+    geom_hline(yintercept = 0.95) +
+    scale_color_discrete('number of repeats per item') +
+    scale_x_continuous('Number of subjects') +
+    scale_y_continuous('Statistical power (for Delta BIC <= -20)') +
+    theme_classic()
+
+
+ggplot(results, aes(n_subjects*2, sigma_bias, color=as.factor(trials_per_item), group=trials_per_item)) +
+    geom_point() +
+    geom_line() +
+    scale_color_discrete('number of repeats per item') +
+    scale_x_continuous('Number of subjects') +
+    scale_y_continuous('Sigma Bias') +
+    theme_classic()
+
+ggplot(results, aes(n_subjects*2, theta_bias, color=as.factor(trials_per_item), group=trials_per_item)) +
+    geom_point() +
+    geom_line() +
+    scale_color_discrete('number of repeats per item') +
+    scale_x_continuous('reps per subjects') +
+    scale_y_continuous('Theta Bias') +
+    theme_classic()
+```
