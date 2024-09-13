@@ -5,9 +5,10 @@
 
 % Documentlass can be stu (student), doc (document), jou (journal), or man (manuscript)
 % Use stu for Course papers
-\documentclass[man, floatsintext, a4paper, 12pt, biblatex, donotrepeattitle]{apa7}
-\usepackage[english]{babel}
-
+\documentclass[man, floatsintext, a4paper, 12pt, donotrepeattitle]{apa7}
+\usepackage[style=apa, backend=biber]{biblatex}
+\addbibresource{paper/references.bib}
+\usepackage[american]{babel}
 %%%%% PACKAGES
 % subfiles
 \usepackage{tipa}
@@ -75,7 +76,6 @@
 \definecolor{yellow}{RGB}{255,255,0}
 
 
-\usepackage{ulem}
 \usepackage{booktabs}
 \usepackage{amssymb}
 \hypersetup{
@@ -135,7 +135,7 @@
 
 
 % Title
-\title{Predictive Minds: Unlearning and Prediction Errors in Southern Min, Japanese, and Mandarin}
+\title{Predictive Minds: Unlearning and Prediction Error in Japanese, Mandarin, and Southern Min learning}
 \shorttitle{Predicting Minds}
 
 % Author
@@ -149,7 +149,7 @@
 %\abstract{\subfile{0-abstract}}
 
 % biblatex reference file
-\addbibresource{paper/references.bib}
+%\addbibresource{paper/references.bib}
 
 
 \begin{document}
